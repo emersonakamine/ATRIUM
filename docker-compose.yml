@@ -1,0 +1,12 @@
+services:
+  baileys:
+    image: devjuanda/baileys-server-pro:latest
+    container_name: baileys
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+    volumes:
+      - baileys_data:/app/data
+
+volumes:
+  baileys_data:

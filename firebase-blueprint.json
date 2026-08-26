@@ -1,0 +1,131 @@
+{
+  "entities": {
+    "Event": {
+      "title": "Event",
+      "description": "Event model in BP Eventos",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "description": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "locationName": { "type": "string" },
+        "address": { "type": "string" },
+        "cityState": { "type": "string" },
+        "maxCapacity": { "type": "number" },
+        "status": { "type": "string", "enum": ["draft", "published", "closed"] },
+        "coverUrl": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "status"]
+    },
+    "Guest": {
+      "title": "Guest",
+      "description": "Guest attendee registered for an event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "eventId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "document": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "ticketCode": { "type": "string" },
+        "qrCodeData": { "type": "string" },
+        "isCheckedIn": { "type": "boolean" },
+        "checkInTime": { "type": "string" },
+        "checkInOperator": { "type": "string" },
+        "checkInGate": { "type": "string" },
+        "companionsCount": { "type": "number" },
+        "companionsEntered": { "type": "number" },
+        "status": { "type": "string", "enum": ["confirmed", "pending", "declined", "cancelled", "blocked"] },
+        "dispatchStatus": { "type": "string", "enum": ["not_sent", "email_sent", "whatsapp_sent", "both_sent", "failed"] },
+        "temporaryExited": { "type": "boolean" },
+        "temporaryExitTime": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "eventId", "name", "ticketCode"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Ticket category / VIP tier for an event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "eventId": { "type": "string" },
+        "name": { "type": "string" },
+        "color": { "type": "string" },
+        "badgeLabel": { "type": "string" },
+        "allowCompanions": { "type": "boolean" },
+        "maxCompanions": { "type": "number" },
+        "gateAccess": { "type": "string" }
+      },
+      "required": ["id", "eventId", "name"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable security log of operations and check-ins",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "eventId": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "action": { "type": "string" },
+        "guestId": { "type": "string" },
+        "guestName": { "type": "string" },
+        "operator": { "type": "string" },
+        "device": { "type": "string" },
+        "details": { "type": "string" },
+        "severity": { "type": "string", "enum": ["info", "success", "warning", "error"] }
+      },
+      "required": ["id", "timestamp", "action", "operator", "details"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Authorized staff or admin user profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "organizer", "gate"] },
+        "assignedGate": { "type": "string" },
+        "passwordHash": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "pending_password", "suspended"] },
+        "inviteToken": { "type": "string" },
+        "resetToken": { "type": "string" },
+        "lastLoginAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role"]
+    }
+  },
+  "firestore": {
+    "/events/{eventId}": {
+      "schema": { "$ref": "#/entities/Event" },
+      "description": "Registered events"
+    },
+    "/guests/{guestId}": {
+      "schema": { "$ref": "#/entities/Guest" },
+      "description": "Guests registered across all events with instant sync"
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Event ticket categories"
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Auditoria e logs de check-in"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Authorized team members and staff"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+services:
+  baileys:
+    image: devjuanda/baileys-server-pro:latest
+    container_name: baileys
+    restart: always
+    volumes:
+      - baileys_data:/app/data
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.railway
+    container_name: bp-server
+    environment:
+      - BAILEYS_SERVER_URL=http://baileys:3000
+      - BAILEYS_SESSION=bp-eventos
+    depends_on:
+      - baileys
+    restart: always
+
+volumes:
+  baileys_data:

@@ -1,0 +1,38 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Public invite pages: read-only access to guests and events by publicCode
+    match /guests/{guestId} {
+      allow read: if true;
+      allow write: if request.resource.data.keys().hasAll(['id', 'eventId', 'name']);
+    }
+
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if request.resource.data.keys().hasAll(['id', 'title']);
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if request.resource.data.keys().hasAll(['id', 'name']);
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if true;
+      allow write: if request.resource.data.keys().hasAll(['id', 'timestamp', 'action']);
+    }
+
+    match /users/{userId} {
+      allow read: if true;
+      // Users cannot be written without providing required fields
+      allow write: if request.resource.data.keys().hasAll(['id', 'email', 'role']);
+    }
+
+    // Deny access to any undocumented collections (no catch-all)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

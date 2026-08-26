@@ -1,0 +1,6 @@
+{
+  "name": "BP Eventos",
+  "description": "Sistema de gestão de convidados, emissão de convites com QR Code único, envio por WhatsApp/E-mail, editor visual e portaria com leitor QR antifraude.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
