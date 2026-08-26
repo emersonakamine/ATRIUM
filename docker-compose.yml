@@ -1,12 +1,20 @@
 services:
   baileys:
     image: devjuanda/baileys-server-pro:latest
-    container_name: baileys
-    ports:
-      - "3001:3000"
-    restart: unless-stopped
+    restart: always
     volumes:
       - baileys_data:/app/data
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - BAILEYS_SERVER_URL=http://baileys:3000
+      - BAILEYS_SESSION=bp-eventos
+    depends_on:
+      - baileys
 
 volumes:
   baileys_data:
