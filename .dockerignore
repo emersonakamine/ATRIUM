@@ -1,7 +1,6 @@
 node_modules
-src
-*.ts
 .env
 .git
 .github
 .firebase
+dist
