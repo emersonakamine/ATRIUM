@@ -9,3 +9,7 @@ ssh-key*
 *.key
 *.key.pub
 graphify-out/
+
+# QR codes WhatsApp (nunca versionar)
+qr-bp*.png
+supabase/qr-*.png

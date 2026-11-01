@@ -1,0 +1,52 @@
+services:
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.7
+    restart: always
+    ports:
+      - "8081:8080"
+    environment:
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-evolution-secret-key}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCE: "true"
+      CACHE_LOCAL_ENABLED: "false"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://redis:6379
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgres://evolution:evolution@postgres:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: evolution
+      DATABASE_ENABLE_MIGRATIONS: "true"
+      CONFIG_SESSION_WEBHOOK: "false"
+      CONFIG_SESSION_WEBHOOK_BY_QRCODE: "false"
+      WEBHOOK_EVENTS: MESSAGE_UPSERT
+      LOG_LEVEL: WARN,ERROR
+      DELAY_BETWEEN_MESSAGES: 1000
+      MAX_MESSAGES_PER_SECOND: 10
+      PURGE_UNREAD_MESSAGES: "false"
+      CACHE_REDIS_TTL: 60
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - evolution_instances:/app/.instances
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: evolution
+      POSTGRES_DB: evolution
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  evolution_instances:
+  redis_data:
+  postgres_data:
