@@ -1,5 +1,6 @@
 import React from 'react';
 import { UserProfile } from '../types';
+import { hashPassword } from '../utils/crypto';
 import { 
   KeyRound, 
   Lock, 
@@ -66,7 +67,7 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
   const hasMinLength = newPassword.length >= 6;
   const passwordsMatch = newPassword.length > 0 && newPassword === confirmPassword;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -86,11 +87,13 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
       return;
     }
 
+    const hashedPassword = await hashPassword(newPassword);
+
     // Success: Update user
     const updatedUser: UserProfile = {
       ...targetUser,
       status: 'active',
-      password: newPassword,
+      password: hashedPassword,
       inviteToken: undefined,
       resetToken: undefined,
       passwordCreatedAt: new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),

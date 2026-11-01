@@ -247,6 +247,36 @@ FAQ DO EVENTO:
 ${config.faqs.map(f => `- P: ${f.question}\n  R: ${f.answer}`).join('\n')}` : ''}
 `;
 
+      // Call Lucy Concierge API if enabled
+      if (appSettings.lucyEnabled && appSettings.lucyApiUrl) {
+        try {
+          const res = await fetch(appSettings.lucyApiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              prompt: text,
+              session_id: `event-${event.id}-user-${Date.now()}`,
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const botReply = data.result || data.response || data.message || data.answer || config.fallbackMessage;
+            setChatMessages(prev => [
+              ...prev,
+              { sender: 'bot', text: botReply, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) },
+            ]);
+            setIsBotThinking(false);
+            return;
+          }
+        } catch (lucyError) {
+          console.error('Lucy Concierge error:', lucyError);
+          // Continue to Groq fallback
+        }
+      }
+
       // Call Groq API directly from frontend
       if (appSettings.groqApiKey) {
         const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -362,7 +392,7 @@ ${config.faqs.map(f => `- P: ${f.question}\n  R: ${f.answer}`).join('\n')}` : ''
               <Bot className="w-6 h-6" />
             </div>
             <span className="text-xs uppercase font-bold tracking-widest px-2.5 py-0.5 rounded-full bg-purple-500/30 text-purple-200 border border-purple-400/40">
-              Powered by {appSettings.groqApiKey ? 'Groq AI' : 'Groq AI (Configure a API Key)'}
+              Powered by {appSettings.lucyEnabled ? 'Lucy Concierge' : appSettings.groqApiKey ? 'Groq AI' : 'Groq AI (Configure a API Key)'}
             </span>
           </div>
           <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">
@@ -791,7 +821,7 @@ ${config.faqs.map(f => `- P: ${f.question}\n  R: ${f.answer}`).join('\n')}` : ''
               <div className="p-3 bg-purple-50 rounded-xl border border-purple-100 text-[11px] text-purple-900 space-y-1">
                 <div className="font-bold flex items-center gap-1">
                   <Bot className="w-3.5 h-3.5" />
-                  <span>Modelo Ativo: {appSettings.groqModel || 'openai/gpt-oss-120b'}</span>
+                  <span>Modelo Ativo: {appSettings.lucyEnabled ? 'Lucy Concierge' : appSettings.groqModel || 'openai/gpt-oss-120b'}</span>
                 </div>
                 <p className="text-purple-700 leading-tight">
                   A IA utiliza as informações cadastradas na aba 1 para gerar respostas humanizadas e contextuais.
@@ -813,7 +843,7 @@ ${config.faqs.map(f => `- P: ${f.question}\n  R: ${f.answer}`).join('\n')}` : ''
                     <div className="text-xs font-bold leading-tight">{config.botName || 'Concierge do Evento'}</div>
                     <div className="text-[10px] text-emerald-200 flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      <span>online • IA {appSettings.groqApiKey ? 'Groq' : 'Não configurada'}</span>
+                      <span>online • IA {appSettings.lucyEnabled ? 'Lucy' : appSettings.groqApiKey ? 'Groq' : 'Não configurada'}</span>
                     </div>
                   </div>
                 </div>

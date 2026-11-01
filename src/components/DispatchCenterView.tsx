@@ -47,7 +47,7 @@ interface DispatchCenterViewProps {
 }
 
 type ContentMode = 'designed_card' | 'simple_text';
-type WhatsappSendMethod = 'desktop_app' | 'web_browser' | 'api_gateway';
+type WhatsappSendMethod = 'desktop_app' | 'web_browser' | 'zernio' | 'api_gateway';
 
 export const DispatchCenterView: React.FC<DispatchCenterViewProps> = ({
   guests,
@@ -60,11 +60,11 @@ export const DispatchCenterView: React.FC<DispatchCenterViewProps> = ({
   const [contentMode, setContentMode] = React.useState<ContentMode>('designed_card');
   const [sendMethod, setSendMethod] = React.useState<WhatsappSendMethod>(() => {
     const saved = localStorage.getItem('guestgate_send_method');
-    if (saved === 'api_gateway' || saved === 'web_browser' || saved === 'desktop_app') {
+    if (saved === 'web_browser' || saved === 'desktop_app' || saved === 'zernio' || saved === 'api_gateway') {
       return saved as WhatsappSendMethod;
     }
-    const hasZapi = localStorage.getItem('guestgate_zapi_instance_id') || localStorage.getItem('guestgate_gateway_url');
-    return hasZapi ? 'api_gateway' : 'desktop_app';
+    const hasZernio = (() => { try { const c = JSON.parse(localStorage.getItem('bp_zernio_config') || 'null'); return c?.apiKey && c?.profileId && c?.accountId; } catch { return false; } })();
+    return hasZernio ? 'zernio' : 'desktop_app';
   });
   
   // Selected guest for interactive live preview
@@ -330,20 +330,68 @@ export const DispatchCenterView: React.FC<DispatchCenterViewProps> = ({
     setSendingGuestId(guest.id);
     setSendErrorMsg(null);
 
-    if (sendMethod === 'desktop_app') {
-      // Direct Native Protocol: opens WhatsApp Desktop / Mobile app directly without web redirect
-      const nativeUrl = `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
-      window.location.href = nativeUrl;
+    if (sendMethod === 'desktop_app' || sendMethod === 'web_browser') {
+      // Generate card image and download
+      try {
+        const guestCategory = categories.find(c => c.id === guest.ticketCategoryId);
+        const cardPngDataUrl = generateGuestCardImage(guest, event, guestCategory);
+        
+        // Download image automatically
+        const link = document.createElement('a');
+        link.download = `convite-${guest.name.replace(/\s+/g, '_')}.png`;
+        link.href = cardPngDataUrl;
+        link.click();
+      } catch (err) {
+        console.warn('Failed to generate/download card image:', err);
+      }
+
+      // Open WhatsApp
+      if (sendMethod === 'desktop_app') {
+        const nativeUrl = `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
+        window.location.href = nativeUrl;
+      } else {
+        const waUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
+        window.open(waUrl, '_blank');
+      }
+      
       setSendingGuestId(null);
       setSentSuccessGuestId(guest.id);
-      setTimeout(() => setSentSuccessGuestId(null), 3000);
-    } else if (sendMethod === 'web_browser') {
-      // Standard WhatsApp Web browser tab
-      const waUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
-      window.open(waUrl, '_blank');
+      setSendErrorMsg('📷 Imagem baixada! Anexe no WhatsApp clicando no ícone 📎.');
+      setTimeout(() => {
+        setSentSuccessGuestId(null);
+        setSendErrorMsg(null);
+      }, 6000);
+    } else if (sendMethod === 'zernio') {
+      // Zernio API - official WhatsApp API
+      const zernio = (() => { try { return JSON.parse(localStorage.getItem('bp_zernio_config') || 'null'); } catch { return null; } })();
+      if (!zernio?.apiKey || !zernio?.profileId || !zernio?.accountId) {
+        setSendErrorMsg('Zernio não configurado. Vá em Configurações e preencha API Key, Profile ID e Account ID.');
+        setTimeout(() => setSendErrorMsg(null), 9000);
+        return;
+      }
+      const result = await fetch('/api/zernio/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: zernio.apiKey,
+          profileId: zernio.profileId,
+          accountId: zernio.accountId,
+          phone: cleanPhone,
+          message: msg,
+          templateName: zernio.templateName || 'bp_confirmacao_registro',
+          templateLanguage: zernio.templateLanguage || 'pt_BR',
+        }),
+      }).then(r => r.json()).catch(e => ({ success: false, error: e.message }));
+
       setSendingGuestId(null);
-      setSentSuccessGuestId(guest.id);
-      setTimeout(() => setSentSuccessGuestId(null), 3000);
+      if (result.success) {
+        setSentSuccessGuestId(guest.id);
+        setTimeout(() => setSentSuccessGuestId(null), 3000);
+      } else {
+        setSendErrorMsg(`Erro ao enviar para ${guest.name}: ${result.error}`);
+        setTimeout(() => setSendErrorMsg(null), 9000);
+        return;
+      }
     } else if (sendMethod === 'api_gateway') {
       // API Gateway background dispatch with guaranteed per-guest QR Code card PNG
       let cardPngDataUrl: string | undefined = undefined;
@@ -421,6 +469,45 @@ export const DispatchCenterView: React.FC<DispatchCenterViewProps> = ({
           }
         }
         await sendThroughApiGateway(cleanPhone, msg, cardPng);
+      } else if (sendMethod === 'zernio') {
+        const zernio = (() => { try { return JSON.parse(localStorage.getItem('bp_zernio_config') || 'null'); } catch { return null; } })();
+        if (zernio?.apiKey && zernio?.profileId && zernio?.accountId) {
+          await fetch('/api/zernio/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              apiKey: zernio.apiKey,
+              profileId: zernio.profileId,
+              accountId: zernio.accountId,
+              phone: cleanPhone,
+              message: msg,
+              templateName: zernio.templateName || 'bp_confirmacao_registro',
+              templateLanguage: zernio.templateLanguage || 'pt_BR',
+            }),
+          }).catch(() => {});
+        }
+      } else if (sendMethod === 'desktop_app' || sendMethod === 'web_browser') {
+        // Generate and download card image
+        try {
+          const targetCategory = categories.find(c => c.id === target.ticketCategoryId);
+          const cardPng = generateGuestCardImage(target, event, targetCategory);
+          const link = document.createElement('a');
+          link.download = `convite-${target.name.replace(/\s+/g, '_')}.png`;
+          link.href = cardPng;
+          link.click();
+        } catch (err) {
+          console.warn('Failed to download card image:', err);
+        }
+
+        // Open WhatsApp
+        if (sendMethod === 'desktop_app') {
+          const nativeUrl = `whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
+          window.location.href = nativeUrl;
+        } else {
+          const waUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
+          window.open(waUrl, '_blank');
+        }
+        await new Promise(r => setTimeout(r, 3000));
       }
 
       onUpdateGuestStatus(target.id, {
@@ -633,11 +720,8 @@ export const DispatchCenterView: React.FC<DispatchCenterViewProps> = ({
                     <Laptop className="w-3.5 h-3.5 text-blue-600" />
                     <span>App Desktop</span>
                   </div>
-                  <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded mb-1">
-                    ⚡ Recomendado
-                  </span>
                   <p className="text-[10px] text-slate-500 font-normal leading-tight">
-                    Abre direto no app do WhatsApp (Windows/Mac/Celular), sem esperar carregar abas.
+                    Abre direto no app do WhatsApp (Windows/Mac/Celular).
                   </p>
                 </button>
 
@@ -654,32 +738,29 @@ export const DispatchCenterView: React.FC<DispatchCenterViewProps> = ({
                     <Globe className="w-3.5 h-3.5 text-emerald-600" />
                     <span>WhatsApp Web</span>
                   </div>
-                  <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded mb-1">
-                    🌐 Navegador
-                  </span>
                   <p className="text-[10px] text-slate-500 font-normal leading-tight">
-                    Abre em uma nova aba do seu navegador (Chrome/Edge).
+                    Abre em uma nova aba do navegador.
                   </p>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setSendMethod('api_gateway')}
+                  onClick={() => setSendMethod('zernio')}
                   className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer relative ${
-                    sendMethod === 'api_gateway'
-                      ? 'border-purple-500 bg-purple-50/50 text-purple-950 font-bold shadow-xs'
+                    sendMethod === 'zernio'
+                      ? 'border-green-500 bg-green-50/50 text-green-950 font-bold shadow-xs'
                       : 'border-slate-200 hover:bg-slate-50 text-slate-700'
                   }`}
                 >
                   <div className="flex items-center gap-1 mb-1">
-                    <Radio className="w-3.5 h-3.5 text-purple-600" />
-                    <span>API Automática</span>
+                    <Radio className="w-3.5 h-3.5 text-green-600" />
+                    <span>Zernio API</span>
                   </div>
-                  <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded mb-1">
-                    🤖 Em Lote
+                  <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 bg-green-100 text-green-700 rounded mb-1">
+                    🚀 Automático
                   </span>
                   <p className="text-[10px] text-slate-500 font-normal leading-tight">
-                    Disparo 100% automático em massa via API (requer servidor conectado).
+                    API oficial do WhatsApp. 100% automático e com formatação.
                   </p>
                 </button>
               </div>

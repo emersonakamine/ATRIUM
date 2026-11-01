@@ -148,6 +148,8 @@ export default function App() {
           maxRetries: 3,
         },
       },
+      lucyEnabled: false,
+      lucyApiUrl: 'https://ea.tailc7276e.ts.net/api/agent/concierge/process',
     };
   });
 

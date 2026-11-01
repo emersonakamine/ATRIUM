@@ -1,5 +1,6 @@
 import React from 'react';
 import { UserProfile } from '../types';
+import { verifyPassword } from '../utils/crypto';
 import { 
   ShieldCheck, 
   Lock, 
@@ -37,7 +38,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
   const [pendingUserNotice, setPendingUserNotice] = React.useState<UserProfile | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setPendingUserNotice(null);
@@ -62,7 +63,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
     }
 
     // Check password
-    if (user.password !== password) {
+    const isValid = await verifyPassword(password, user.password);
+    if (!isValid) {
       setErrorMsg('Senha incorreta. Verifique se digitou corretamente ou use o recurso de redefinição de senha.');
       return;
     }

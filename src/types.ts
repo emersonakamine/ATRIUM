@@ -171,6 +171,8 @@ export interface AppSettings {
   groqApiKey: string;
   groqModel: string;
   channelConfig: ChannelConfig;
+  lucyEnabled: boolean;
+  lucyApiUrl: string;
 }
 
 export interface EventScheduleItem {

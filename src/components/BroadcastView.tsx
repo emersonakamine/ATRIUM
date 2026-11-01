@@ -12,6 +12,7 @@ import {
   Zap
 } from 'lucide-react';
 import { Guest, EventData } from '../types';
+import { getGuestInviteUrl } from '../utils/urlHelper';
 
 interface BroadcastViewProps {
   event: EventData;
@@ -51,56 +52,81 @@ export const BroadcastView: React.FC<BroadcastViewProps> = ({ event, guests }) =
     setPhase('sending');
     setIsSending(true);
 
-    try {
-      // Create broadcast
-      const res = await fetch('/api/broadcasts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          eventId: event.id,
-          eventName: event.title,
-          title: `Convites - ${event.title}`,
-          guests: selectedGuestsList.map(g => ({
-            id: g.id,
-            name: g.name,
-            phone: g.phone,
-            publicCode: g.publicCode,
-          })),
-          messageTemplate,
-          createdBy: 'admin',
-        }),
+    const zernio = (() => {
+      try { return JSON.parse(localStorage.getItem('bp_zernio_config') || 'null'); } catch { return null; }
+    })();
+
+    const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+    let sentCount = 0;
+    let failedCount = 0;
+    const errors: string[] = [];
+
+    for (const guest of selectedGuestsList) {
+      const phone = guest.phone.replace(/\D/g, '');
+      let cleanPhone = phone;
+      if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+        cleanPhone = '55' + cleanPhone;
+      }
+
+      let msg = messageTemplate
+        .replace(/\{\{nome\}\}/g, guest.name)
+        .replace(/\{\{evento\}\}/g, event.title);
+
+      if (includeLink && guest.publicCode) {
+        msg += `\n\n${getGuestInviteUrl(guest.publicCode)}`;
+      }
+
+      try {
+        if (zernio?.apiKey && zernio?.profileId && zernio?.accountId) {
+          const res = await fetch('/api/zernio/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              apiKey: zernio.apiKey,
+              profileId: zernio.profileId,
+              accountId: zernio.accountId,
+              phone: cleanPhone,
+              message: msg,
+              templateName: zernio.templateName || 'bp_confirmacao_registro',
+              templateLanguage: zernio.templateLanguage || 'pt_BR',
+            }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            sentCount++;
+          } else {
+            failedCount++;
+            errors.push(`${guest.name}: ${data.error}`);
+          }
+        } else {
+          const waUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
+          window.open(waUrl, '_blank');
+          sentCount++;
+        }
+      } catch (err: any) {
+        failedCount++;
+        errors.push(`${guest.name}: ${err.message}`);
+      }
+
+      setProgress({
+        broadcastId: zernio?.apiKey ? 'zernio' : 'manual',
+        sent: sentCount,
+        failed: failedCount,
+        total: selectedGuestsList.length,
+        currentGuest: guest.name,
       });
 
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-
-      // Start sending
-      await fetch(`/api/broadcasts/${data.broadcastId}/start`, { method: 'POST' });
-
-      // Subscribe to SSE for real-time updates
-      const eventSource = new EventSource(`/api/broadcasts/${data.broadcastId}/stream`);
-      
-      eventSource.onmessage = (event) => {
-        const payload = JSON.parse(event.data);
-        
-        if (payload.type === 'progress') {
-          setProgress(payload.data);
-        } else if (payload.type === 'alert') {
-          setAlerts(prev => [...prev, payload.data]);
-        } else if (payload.type === 'complete') {
-          setPhase('done');
-          setIsSending(false);
-          eventSource.close();
-        }
-      };
-
-      eventSource.onerror = () => {
-        eventSource.close();
-      };
-    } catch (err: any) {
-      setAlerts(prev => [...prev, { error: err.message }]);
-      setIsSending(false);
+      if (sentCount + failedCount < selectedGuestsList.length) {
+        await delay(zernio?.apiKey ? 1000 : 5000);
+      }
     }
+
+    if (errors.length > 0) {
+      setAlerts(prev => [...prev, { type: 'error', message: `${failedCount} falhas: ${errors.slice(0, 3).join('; ')}` }]);
+    }
+
+    setPhase('done');
+    setIsSending(false);
   };
 
   const handlePause = async (broadcastId: string) => {
