@@ -1,21 +1,13 @@
 import { EventEmitter } from 'events';
-import { db } from '../src/services/firebase';
-import { 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  doc, 
-  query, 
-  where, 
-  orderBy, 
-  limit, 
-  getDocs,
-  onSnapshot,
-  serverTimestamp,
-  Timestamp
-} from 'firebase/firestore';
+import { admin } from './supabase';
 
-export type MessageStatus = 'queued' | 'sending' | 'sent' | 'failed' | 'paused' | 'cancelled';
+export type MessageStatus =
+  | 'queued'
+  | 'sending'
+  | 'sent'
+  | 'failed'
+  | 'paused'
+  | 'cancelled';
 
 export interface MessageJob {
   id: string;
@@ -29,8 +21,9 @@ export interface MessageJob {
   attempts: number;
   maxAttempts: number;
   lastError?: string;
-  createdAt: any;
-  sentAt?: any;
+  createdAt: string;
+  sentAt?: string;
+  seq?: number;
 }
 
 export interface BroadcastProgress {
@@ -40,17 +33,27 @@ export interface BroadcastProgress {
   sent: number;
   failed: number;
   currentGuest?: string;
-  startedAt?: any;
-  completedAt?: any;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+type SupabaseResult<T> = { data: T | null; error: { message?: string } | null };
+
+function must<T>(res: SupabaseResult<T>, ctx: string): T {
+  if (res.error) {
+    throw new Error(`${ctx}: ${res.error.message || JSON.stringify(res.error)}`);
+  }
+  return res.data as T;
 }
 
 /**
- * Fila de mensagens usando Firestore (gratuito, sem Redis)
- * 
- * - Jobs ficam na coleção 'messageQueue'
+ * Fila de mensagens usando Supabase (Postgres)
+ *
+ * - Jobs ficam na tabela 'message_queue'
  * - Progresso fica em 'broadcasts'
  * - Delay configurável por mensagem
  * - Retry automático em caso de falha
+ * - Acesso APENAS via service_role (backend) — RLS não expõe nada ao cliente
  */
 export class MessageQueue extends EventEmitter {
   private processing = false;
@@ -69,7 +72,7 @@ export class MessageQueue extends EventEmitter {
   }
 
   /**
-   * Criar broadcast no Firestore
+   * Criar broadcast no Supabase
    */
   async createBroadcast(params: {
     eventId: string;
@@ -79,32 +82,38 @@ export class MessageQueue extends EventEmitter {
     messageTemplate: string;
     createdBy: string;
   }): Promise<string> {
-    const broadcastRef = await addDoc(collection(db, 'broadcasts'), {
-      eventId: params.eventId,
-      eventName: params.eventName,
-      title: params.title,
-      status: 'pending',
-      totalGuests: params.guests.length,
-      sentCount: 0,
-      failedCount: 0,
-      delayMin: this.delayMin / 1000,
-      delayMax: this.delayMax / 1000,
-      messageTemplate: params.messageTemplate,
-      createdAt: serverTimestamp(),
-      createdBy: params.createdBy,
-    });
+    const broadcast = must(
+      await admin
+        .from('broadcasts')
+        .insert({
+          eventId: params.eventId,
+          eventName: params.eventName,
+          title: params.title,
+          status: 'pending',
+          totalGuests: params.guests.length,
+          sentCount: 0,
+          failedCount: 0,
+          delayMin: Math.round(this.delayMin / 1000),
+          delayMax: Math.round(this.delayMax / 1000),
+          messageTemplate: params.messageTemplate,
+          createdAt: new Date().toISOString(),
+          createdBy: params.createdBy,
+        })
+        .select('id')
+        .single(),
+      'createBroadcast'
+    ) as { id: string };
 
-    const broadcastId = broadcastRef.id;
+    const broadcastId = broadcast.id;
 
     // Criar jobs para cada convidado
-    for (let i = 0; i < params.guests.length; i++) {
-      const guest = params.guests[i];
+    const jobs = params.guests.map((guest, i) => {
       const message = params.messageTemplate
         .replace(/\{\{nome\}\}/g, guest.name)
         .replace(/\{\{evento\}\}/g, params.eventName)
         .replace(/\{\{codigo\}\}/g, guest.publicCode);
 
-      await addDoc(collection(db, 'messageQueue'), {
+      return {
         broadcastId,
         guestId: guest.id,
         guestName: guest.name,
@@ -114,10 +123,15 @@ export class MessageQueue extends EventEmitter {
         status: 'queued',
         attempts: 0,
         maxAttempts: 3,
-        createdAt: serverTimestamp(),
-        order: i, // Para manter a ordem
-      });
-    }
+        createdAt: new Date().toISOString(),
+        seq: i, // Para manter a ordem
+      };
+    });
+
+    must(
+      await admin.from('message_queue').insert(jobs),
+      'createBroadcast/jobs'
+    );
 
     return broadcastId;
   }
@@ -139,22 +153,23 @@ export class MessageQueue extends EventEmitter {
 
       try {
         // Buscar próximo job pendente
-        const q = query(
-          collection(db, 'messageQueue'),
-          where('status', '==', 'queued'),
-          orderBy('order'),
-          limit(1)
+        const rows = must(
+          await admin
+            .from('message_queue')
+            .select('*')
+            .eq('status', 'queued')
+            .order('seq', { ascending: true })
+            .limit(1),
+          'queue/next'
         );
 
-        const snapshot = await getDocs(q);
-        if (snapshot.empty) {
+        if (!rows || rows.length === 0) {
           // Verificar se broadcast terminou
           this.checkCompletion();
           return;
         }
 
-        const jobDoc = snapshot.docs[0];
-        const job = { id: jobDoc.id, ...jobDoc.data() } as MessageJob;
+        const job = rows[0] as MessageJob;
 
         // Verificar delay desde último envio
         const lastSent = await this.getLastSentTime(job.broadcastId);
@@ -164,33 +179,54 @@ export class MessageQueue extends EventEmitter {
         }
 
         // Marcar como sending
-        await updateDoc(doc(db, 'messageQueue', job.id), { status: 'sending' });
-        this.emit('progress', { broadcastId: job.broadcastId, currentGuest: job.guestName });
+        must(
+          await admin
+            .from('message_queue')
+            .update({ status: 'sending' })
+            .eq('id', job.id),
+          'queue/mark-sending'
+        );
+        this.emit('progress', {
+          broadcastId: job.broadcastId,
+          currentGuest: job.guestName,
+        });
 
         // Enviar
         const result = await sendFn(job);
 
         if (result.success) {
-          await updateDoc(doc(db, 'messageQueue', job.id), { 
-            status: 'sent',
-            sentAt: serverTimestamp()
-          });
+          must(
+            await admin
+              .from('message_queue')
+              .update({ status: 'sent', sentAt: new Date().toISOString() })
+              .eq('id', job.id),
+            'queue/mark-sent'
+          );
           await this.incrementCounter(job.broadcastId, 'sent');
         } else {
           job.attempts++;
           if (job.attempts >= job.maxAttempts) {
-            await updateDoc(doc(db, 'messageQueue', job.id), { 
-              status: 'failed',
-              lastError: result.error 
-            });
+            must(
+              await admin
+                .from('message_queue')
+                .update({ status: 'failed', lastError: result.error })
+                .eq('id', job.id),
+              'queue/mark-failed'
+            );
             await this.incrementCounter(job.broadcastId, 'failed');
             this.emit('job_failed', { ...job, error: result.error });
           } else {
-            await updateDoc(doc(db, 'messageQueue', job.id), { 
-              status: 'queued',
-              attempts: job.attempts,
-              lastError: result.error
-            });
+            must(
+              await admin
+                .from('message_queue')
+                .update({
+                  status: 'queued',
+                  attempts: job.attempts,
+                  lastError: result.error,
+                })
+                .eq('id', job.id),
+              'queue/requeue'
+            );
           }
         }
       } catch (err: any) {
@@ -204,16 +240,21 @@ export class MessageQueue extends EventEmitter {
    */
   async pause(broadcastId?: string): Promise<void> {
     if (broadcastId) {
-      const q = query(
-        collection(db, 'messageQueue'),
-        where('broadcastId', '==', broadcastId),
-        where('status', '==', 'queued')
+      must(
+        await admin
+          .from('message_queue')
+          .update({ status: 'paused' })
+          .eq('broadcastId', broadcastId)
+          .eq('status', 'queued'),
+        'queue/pause-jobs'
       );
-      const snapshot = await getDocs(q);
-      for (const docSnap of snapshot.docs) {
-        await updateDoc(doc(db, 'messageQueue', docSnap.id), { status: 'paused' });
-      }
-      await updateDoc(doc(db, 'broadcasts', broadcastId), { status: 'paused' });
+      must(
+        await admin
+          .from('broadcasts')
+          .update({ status: 'paused' })
+          .eq('id', broadcastId),
+        'queue/pause-broadcast'
+      );
     } else {
       this.paused = true;
     }
@@ -225,16 +266,21 @@ export class MessageQueue extends EventEmitter {
    */
   async resume(broadcastId?: string): Promise<void> {
     if (broadcastId) {
-      const q = query(
-        collection(db, 'messageQueue'),
-        where('broadcastId', '==', broadcastId),
-        where('status', '==', 'paused')
+      must(
+        await admin
+          .from('message_queue')
+          .update({ status: 'queued' })
+          .eq('broadcastId', broadcastId)
+          .eq('status', 'paused'),
+        'queue/resume-jobs'
       );
-      const snapshot = await getDocs(q);
-      for (const docSnap of snapshot.docs) {
-        await updateDoc(doc(db, 'messageQueue', docSnap.id), { status: 'queued' });
-      }
-      await updateDoc(doc(db, 'broadcasts', broadcastId), { status: 'running' });
+      must(
+        await admin
+          .from('broadcasts')
+          .update({ status: 'running' })
+          .eq('id', broadcastId),
+        'queue/resume-broadcast'
+      );
     } else {
       this.paused = false;
     }
@@ -245,16 +291,21 @@ export class MessageQueue extends EventEmitter {
    * Cancelar broadcast
    */
   async cancel(broadcastId: string): Promise<void> {
-    const q = query(
-      collection(db, 'messageQueue'),
-      where('broadcastId', '==', broadcastId),
-      where('status', 'in', ['queued', 'paused'])
+    must(
+      await admin
+        .from('message_queue')
+        .update({ status: 'cancelled' })
+        .eq('broadcastId', broadcastId)
+        .in('status', ['queued', 'paused']),
+      'queue/cancel-jobs'
     );
-    const snapshot = await getDocs(q);
-    for (const docSnap of snapshot.docs) {
-      await updateDoc(doc(db, 'messageQueue', docSnap.id), { status: 'cancelled' });
-    }
-    await updateDoc(doc(db, 'broadcasts', broadcastId), { status: 'cancelled' });
+    must(
+      await admin
+        .from('broadcasts')
+        .update({ status: 'cancelled' })
+        .eq('id', broadcastId),
+      'queue/cancel-broadcast'
+    );
     this.emit('broadcast_cancelled', { broadcastId });
   }
 
@@ -273,43 +324,61 @@ export class MessageQueue extends EventEmitter {
   // ─── Helpers ─────────────────────────────────────────────
 
   private async getLastSentTime(broadcastId: string): Promise<number> {
-    const q = query(
-      collection(db, 'messageQueue'),
-      where('broadcastId', '==', broadcastId),
-      where('status', '==', 'sent'),
-      orderBy('sentAt', 'desc'),
-      limit(1)
+    const rows = must(
+      await admin
+        .from('message_queue')
+        .select('sentAt')
+        .eq('broadcastId', broadcastId)
+        .eq('status', 'sent')
+        .order('sentAt', { ascending: false })
+        .limit(1),
+      'queue/last-sent'
     );
-    const snapshot = await getDocs(q);
-    if (snapshot.empty) return 0;
-    
-    const lastSent = snapshot.docs[0].data().sentAt;
-    if (lastSent?.toDate) {
-      return lastSent.toDate().getTime();
-    }
-    return 0;
+
+    if (!rows || rows.length === 0) return 0;
+
+    const sentAt = rows[0].sentAt;
+    if (!sentAt) return 0;
+    const parsed = Date.parse(String(sentAt));
+    return Number.isNaN(parsed) ? 0 : parsed;
   }
 
-  private async incrementCounter(broadcastId: string, field: 'sent' | 'failed'): Promise<void> {
-    const broadcastRef = doc(db, 'broadcasts', broadcastId);
-    const broadcastSnap = await getDocs(query(collection(db, 'broadcasts'), where('__name__', '==', broadcastId)));
-    
-    if (!broadcastSnap.empty) {
-      const current = broadcastSnap.docs[0].data();
-      const update: any = {};
-      update[field === 'sent' ? 'sentCount' : 'failedCount'] = (current[field === 'sent' ? 'sentCount' : 'failedCount'] || 0) + 1;
-      await updateDoc(broadcastRef, update);
-    }
+  private async incrementCounter(
+    broadcastId: string,
+    field: 'sent' | 'failed'
+  ): Promise<void> {
+    const column = field === 'sent' ? 'sentCount' : 'failedCount';
+
+    const current = await admin
+      .from('broadcasts')
+      .select(column)
+      .eq('id', broadcastId)
+      .maybeSingle();
+
+    if (current.error || !current.data) return;
+
+    const nextValue = ((current.data[column] as number) || 0) + 1;
+
+    must(
+      await admin
+        .from('broadcasts')
+        .update({ [column]: nextValue })
+        .eq('id', broadcastId),
+      `queue/increment-${field}`
+    );
   }
 
   private async checkCompletion(): Promise<void> {
-    const q = query(
-      collection(db, 'messageQueue'),
-      where('status', 'in', ['queued', 'sending'])
+    const rows = must(
+      await admin
+        .from('message_queue')
+        .select('id')
+        .in('status', ['queued', 'sending'])
+        .limit(1),
+      'queue/completion-check'
     );
-    const snapshot = await getDocs(q);
-    
-    if (snapshot.empty && this.processing) {
+
+    if ((!rows || rows.length === 0) && this.processing) {
       // Todos os jobs processados
       this.emit('all_complete');
     }

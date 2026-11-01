@@ -1,14 +1,15 @@
 import { EventEmitter } from 'events';
-import { ChannelConfig, Broadcast } from '../types';
+import { ChannelConfig, Broadcast } from './types';
 import { messageQueue, MessageJob } from './queue';
 
 /**
- * MessageService simplificado - apenas Baileys (WhatsApp grátis)
- * 
- * - Fila no Firestore (sem Redis)
+ * MessageService simplificado — Evolution API (WhatsApp self-hosted)
+ *
+ * - Fila no Supabase (sem Redis)
  * - Delay configurável
  * - Retry automático
  * - Alertas ao organizador em caso de falha
+ * - Chave da API só no backend (EVOLUTION_API_KEY), nunca no cliente
  */
 export class MessageService extends EventEmitter {
   private channelConfig: ChannelConfig;
@@ -39,7 +40,7 @@ export class MessageService extends EventEmitter {
   }
 
   /**
-   * Verificar se Baileys está configurado
+   * Verificar se a Evolution API está configurada
    */
   isConfigured(): boolean {
     return !!this.channelConfig.whatsapp?.serverUrl;
@@ -86,49 +87,74 @@ export class MessageService extends EventEmitter {
     if (!broadcast) throw new Error('Broadcast não encontrado');
 
     if (!this.isConfigured()) {
-      throw new Error('Servidor Baileys não configurado. Configure em Configurações > Canais.');
+      throw new Error(
+        'Evolution API não configurada. Configure em Configurações > Canais.'
+      );
     }
 
     broadcast.status = 'running';
     this.broadcasts.set(broadcastId, broadcast);
 
     await messageQueue.startProcessing(async (job) => {
-      return await this.sendViaBaileys(job);
+      return await this.sendViaEvolution(job);
     });
   }
 
   /**
-   * Enviar mensagem via Baileys Server Pro
+   * Enviar mensagem via Evolution API (self-hosted)
    */
-  private async sendViaBaileys(job: MessageJob): Promise<{ success: boolean; error?: string }> {
+  private async sendViaEvolution(
+    job: MessageJob
+  ): Promise<{ success: boolean; error?: string; messageId?: string }> {
     const serverUrl = this.channelConfig.whatsapp?.serverUrl;
-    const sessionName = this.channelConfig.whatsapp?.sessionName || 'default';
+    const instance =
+      this.channelConfig.whatsapp?.sessionName || 'default';
 
     try {
-      // Usa proxy interno (servidor Node → Baileys)
-      const response = await fetch(`${serverUrl}/api/sessions/${sessionName}/send-message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          number: job.phone,
-          message: job.message,
-        }),
-      });
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      const apiKey = process.env.EVOLUTION_API_KEY;
+      if (apiKey) headers['apikey'] = apiKey;
 
-      const data = await response.json();
-      
-      if (data.success) {
-        return { success: true, messageId: data.key?.id };
+      const response = await fetch(
+        `${serverUrl}/message/sendText/${instance}`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            number: job.phone,
+            text: job.message,
+            options: {
+              delay: 1000,
+              presence: 'composing',
+              linkPreview: true,
+            },
+          }),
+        }
+      );
+
+      const resText = await response.text();
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `Evolution API (${response.status}): ${resText.substring(0, 200)}`,
+        };
       }
 
-      return { 
-        success: false, 
-        error: data.message || `Erro HTTP ${response.status}` 
-      };
+      let data: any = {};
+      try {
+        data = JSON.parse(resText);
+      } catch {
+        data = { raw: resText };
+      }
+
+      return { success: true, messageId: data?.id || data?.key?.id };
     } catch (err: any) {
-      return { 
-        success: false, 
-        error: `Servidor Baileys indisponível: ${err.message}` 
+      return {
+        success: false,
+        error: `Evolution API indisponível: ${err.message}`,
       };
     }
   }
@@ -170,17 +196,26 @@ export class MessageService extends EventEmitter {
   }
 
   /**
-   * Verificar status do servidor Baileys
+   * Verificar status da instância na Evolution API
    */
   async checkBaileysStatus(): Promise<{ online: boolean; error?: string }> {
     const serverUrl = this.channelConfig.whatsapp?.serverUrl;
     if (!serverUrl) return { online: false, error: 'URL do servidor não configurada' };
 
+    const instance = this.channelConfig.whatsapp?.sessionName || 'default';
+
     try {
-      const response = await fetch(`${serverUrl}/api/sessions/${this.channelConfig.whatsapp?.sessionName || 'default'}/status`);
+      const headers: Record<string, string> = {};
+      const apiKey = process.env.EVOLUTION_API_KEY;
+      if (apiKey) headers['apikey'] = apiKey;
+
+      const response = await fetch(
+        `${serverUrl}/instance/connectionState/${instance}`,
+        { headers }
+      );
       if (response.ok) {
         const data = await response.json();
-        return { online: data.status === 'open' };
+        return { online: data?.status === 'open' };
       }
       return { online: false, error: `Servidor retornou ${response.status}` };
     } catch (err: any) {

@@ -1,9 +1,23 @@
 -- ============================================================
 -- ATRIUM / BP Eventos — Schema inicial (Substitui Firestore)
 -- Espelha src/types.ts + server/queue.ts fielmente
--- Como rodar: Supabase Dashboard > SQL Editor > Run
---   ou: SUPABASE_ACCESS_TOKEN=... node supabase/apply.mjs
+--
+-- IMPORTANTE: colunas camelCase vão ENTRE ASPAS ("eventId")
+-- porque o Postgres abaixa identificadores sem aspas.
+-- Isso mantém os nomes iguais aos do código TS (zero mapping).
+--
+-- Como rodar: node --env-file=.env supabase/apply.mjs
+--   (o apply.mjs já executa os DROPs de recriação limpa)
 -- ============================================================
+
+-- Recriação limpa (dev — tabelas de teste descartáveis)
+drop table if exists public.message_queue cascade;
+drop table if exists public.broadcasts cascade;
+drop table if exists public.audit_logs cascade;
+drop table if exists public.guests cascade;
+drop table if exists public.categories cascade;
+drop table if exists public.users cascade;
+drop table if exists public.events cascade;
 
 -- ------------------------------------------------------------
 -- 1. TABELAS DE NEGÓCIO
@@ -15,74 +29,74 @@ create table if not exists public.events (
   title text not null,
   subtitle text default '',
   description text default '',
-  startDate text default '',
-  endDate text default '',
-  startTime text default '',
-  endTime text default '',
-  locationName text default '',
+  "startDate" text default '',
+  "endDate" text default '',
+  "startTime" text default '',
+  "endTime" text default '',
+  "locationName" text default '',
   address text default '',
-  cityState text default '',
-  maxCapacity integer default 0,
+  "cityState" text default '',
+  "maxCapacity" integer default 0,
   status text not null default 'draft'
     check (status in ('draft', 'published', 'closed')),
-  coverUrl text default '',
-  inviteLayout jsonb not null default '{}'::jsonb,
-  aiConfig jsonb,
-  landingPageConfig jsonb,
-  updatedAt timestamptz default now()
+  "coverUrl" text default '',
+  "inviteLayout" jsonb not null default '{}'::jsonb,
+  "aiConfig" jsonb,
+  "landingPageConfig" jsonb,
+  "updatedAt" timestamptz default now()
 );
 
 create table if not exists public.guests (
   id text primary key,
-  eventId text references public.events (id) on delete cascade,
-  publicCode text not null,
-  qrPayloadToken text not null,
+  "eventId" text references public.events (id) on delete cascade,
+  "publicCode" text not null,
+  "qrPayloadToken" text not null,
   name text not null,
   email text default '',
   phone text default '',
-  ticketCategoryId text,
+  "ticketCategoryId" text,
   status text not null default 'pending'
     check (status in ('pending', 'sent', 'viewed', 'confirmed', 'cancelled', 'blocked')),
-  isCheckedIn boolean not null default false,
-  checkInTimestamp text,
-  checkInOperator text,
-  checkInDevice text,
-  checkInGate text,
-  emailStatus text not null default 'not_sent'
-    check (emailStatus in ('not_sent', 'sent', 'delivered', 'failed')),
-  whatsappStatus text not null default 'not_sent'
-    check (whatsappStatus in ('not_sent', 'sent', 'delivered', 'failed')),
-  sentAt text,
-  docNumber text,
+  "isCheckedIn" boolean not null default false,
+  "checkInTimestamp" text,
+  "checkInOperator" text,
+  "checkInDevice" text,
+  "checkInGate" text,
+  "emailStatus" text not null default 'not_sent'
+    check ("emailStatus" in ('not_sent', 'sent', 'delivered', 'failed')),
+  "whatsappStatus" text not null default 'not_sent'
+    check ("whatsappStatus" in ('not_sent', 'sent', 'delivered', 'failed')),
+  "sentAt" text,
+  "docNumber" text,
   companions integer not null default 0,
   notes text,
-  customData jsonb not null default '{}'::jsonb,
-  qrVersion integer not null default 1,
-  createdAt text default '',
-  reissuedAt text
+  "customData" jsonb not null default '{}'::jsonb,
+  "qrVersion" integer not null default 1,
+  "createdAt" text default '',
+  "reissuedAt" text
 );
 
 create table if not exists public.categories (
   id text primary key,
-  eventId text references public.events (id) on delete cascade,
+  "eventId" text references public.events (id) on delete cascade,
   name text not null,
   color text default '#6366f1',
-  badgeBg text default '#6366f1',
-  badgeText text default '#ffffff',
+  "badgeBg" text default '#6366f1',
+  "badgeText" text default '#ffffff',
   quota integer not null default 0,
   description text default '',
-  accessZone text default '',
-  validTime text default ''
+  "accessZone" text default '',
+  "validTime" text default ''
 );
 
 create table if not exists public.audit_logs (
   id text primary key,
-  eventId text references public.events (id) on delete set null,
+  "eventId" text references public.events (id) on delete set null,
   timestamp text default '',
   action text not null,
-  guestId text,
-  guestName text,
-  publicCode text,
+  "guestId" text,
+  "guestName" text,
+  "publicCode" text,
   operator text default '',
   device text default '',
   details text default '',
@@ -96,16 +110,16 @@ create table if not exists public.users (
   email text not null,
   role text not null default 'gate'
     check (role in ('admin', 'organizer', 'gate')),
-  avatarUrl text,
-  assignedGate text,
-  assignedEventIds jsonb not null default '[]'::jsonb,
+  "avatarUrl" text,
+  "assignedGate" text,
+  "assignedEventIds" jsonb not null default '[]'::jsonb,
   status text not null default 'active'
     check (status in ('active', 'pending_password', 'blocked')),
-  inviteToken text,
-  resetToken text,
-  invitedAt text,
-  passwordCreatedAt text,
-  lastLoginAt text
+  "inviteToken" text,
+  "resetToken" text,
+  "invitedAt" text,
+  "passwordCreatedAt" text,
+  "lastLoginAt" text
 );
 
 -- ------------------------------------------------------------
@@ -115,36 +129,36 @@ create table if not exists public.users (
 
 create table if not exists public.broadcasts (
   id uuid primary key default gen_random_uuid(),
-  eventId text,
-  eventName text default '',
+  "eventId" text,
+  "eventName" text default '',
   title text default '',
   status text not null default 'pending'
     check (status in ('pending', 'running', 'paused', 'completed', 'cancelled')),
-  totalGuests integer not null default 0,
-  sentCount integer not null default 0,
-  failedCount integer not null default 0,
-  delayMin integer not null default 15,
-  delayMax integer not null default 45,
-  messageTemplate text default '',
-  createdAt timestamptz not null default now(),
-  createdBy text default ''
+  "totalGuests" integer not null default 0,
+  "sentCount" integer not null default 0,
+  "failedCount" integer not null default 0,
+  "delayMin" integer not null default 15,
+  "delayMax" integer not null default 45,
+  "messageTemplate" text default '',
+  "createdAt" timestamptz not null default now(),
+  "createdBy" text default ''
 );
 
 create table if not exists public.message_queue (
   id uuid primary key default gen_random_uuid(),
-  broadcastId uuid not null references public.broadcasts (id) on delete cascade,
-  guestId text,
-  guestName text default '',
+  "broadcastId" uuid not null references public.broadcasts (id) on delete cascade,
+  "guestId" text,
+  "guestName" text default '',
   phone text default '',
-  publicCode text default '',
+  "publicCode" text default '',
   message text default '',
   status text not null default 'queued'
     check (status in ('queued', 'sending', 'sent', 'failed', 'paused', 'cancelled')),
   attempts integer not null default 0,
-  maxAttempts integer not null default 3,
-  lastError text,
-  createdAt timestamptz not null default now(),
-  sentAt timestamptz,
+  "maxAttempts" integer not null default 3,
+  "lastError" text,
+  "createdAt" timestamptz not null default now(),
+  "sentAt" timestamptz,
   seq integer not null default 0
 );
 
@@ -153,20 +167,20 @@ create table if not exists public.message_queue (
 -- ------------------------------------------------------------
 
 create unique index if not exists events_code_idx on public.events (code);
-create index if not exists guests_public_code_idx on public.guests (publicCode);
-create unique index if not exists guests_qr_token_idx on public.guests (qrPayloadToken);
-create index if not exists guests_event_idx on public.guests (eventId);
+create index if not exists guests_public_code_idx on public.guests ("publicCode");
+create unique index if not exists guests_qr_token_idx on public.guests ("qrPayloadToken");
+create index if not exists guests_event_idx on public.guests ("eventId");
 create index if not exists guests_status_idx on public.guests (status);
-create index if not exists categories_event_idx on public.categories (eventId);
-create index if not exists audit_logs_event_idx on public.audit_logs (eventId);
+create index if not exists categories_event_idx on public.categories ("eventId");
+create index if not exists audit_logs_event_idx on public.audit_logs ("eventId");
 create index if not exists audit_logs_timestamp_idx on public.audit_logs (timestamp desc);
 create index if not exists users_email_idx on public.users (email);
-create index if not exists broadcasts_event_idx on public.broadcasts (eventId);
+create index if not exists broadcasts_event_idx on public.broadcasts ("eventId");
 create unique index if not exists message_queue_pending_idx
   on public.message_queue (status, seq)
   where status = 'queued';
 create index if not exists message_queue_broadcast_idx
-  on public.message_queue (broadcastId, status);
+  on public.message_queue ("broadcastId", status);
 
 -- ------------------------------------------------------------
 -- 4. RLS (row-level security) — corrige as regras do Firestore

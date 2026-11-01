@@ -516,12 +516,18 @@ DIRETRIZES DE RESPOSTA:
     });
   });
 
-  // Initialize MessageService (só Baileys)
+  // Initialize MessageService (Evolution API self-hosted)
   const defaultConfig: ChannelConfig = {
     whatsapp: {
       enabled: true,
-      serverUrl: process.env.BAILEYS_SERVER_URL || 'http://localhost:3000',
-      sessionName: process.env.BAILEYS_SESSION || 'bp-eventos',
+      serverUrl:
+        process.env.EVOLUTION_URL ||
+        process.env.BAILEYS_SERVER_URL ||
+        'http://localhost:8080',
+      sessionName:
+        process.env.EVOLUTION_INSTANCE ||
+        process.env.BAILEYS_SESSION ||
+        'bp-eventos',
       delayMin: 15,
       delayMax: 45,
       maxRetries: 3,
@@ -529,7 +535,7 @@ DIRETRIZES DE RESPOSTA:
   };
 
   getMessageService(defaultConfig);
-  console.log('✅ MessageService (Baileys) initialized');
+  console.log('✅ MessageService (Evolution API) initialized');
 
   // Vite middleware for development vs static build in production
   if (process.env.NODE_ENV !== 'production') {
