@@ -48,24 +48,14 @@ const AdminSettingsView = React.lazy(() => import('./components/AdminSettingsVie
 import { sound } from './utils/audio';
 import { parseCurrentRoute, getGuestInviteUrl, getEventLandingUrl } from './utils/urlHelper';
 import { 
-  db, 
-  resetEntireDatabase 
-} from './services/firebase';
-import { sanitizeForFirestore } from './utils/firestoreSanitizer';
+  resetEntireDatabase,
+  getDocById,
+  getDocsWhere,
+} from './services/supabase';
 import { safeSetDoc, safeDeleteDoc } from './utils/firestoreWrite';
 import { generateSecureToken } from './utils/token';
-import { useFirestoreSync } from './hooks/useFirestoreSync';
+import { useSupabaseSync } from './hooks/useSupabaseSync';
 import { useLocalStorageSync } from './hooks/useLocalStorageSync';
-import { 
-  doc, 
-  getDoc, 
-  getDocs, 
-  collection,
-  query, 
-  where, 
-  setDoc, 
-  deleteDoc 
-} from 'firebase/firestore';
 
 export default function App() {
   // 1. Events State (Multi-event support)
@@ -189,7 +179,7 @@ export default function App() {
   useLocalStorageSync({ events, guests, categories, auditLogs, users, currentUser, currentEventId, appSettings });
 
   // Firestore Real-Time Subscriptions for Multi-Device synchronization
-  useFirestoreSync({ setEvents, setGuests, setCategories, setAuditLogs, setUsers });
+  useSupabaseSync({ setEvents, setGuests, setCategories, setAuditLogs, setUsers });
 
   // Check for URL token on load (e.g. #create-password?token=... or #reset-password?token=...) or public invite route
   React.useEffect(() => {
@@ -271,48 +261,43 @@ export default function App() {
     async function fetchMissingData() {
       try {
         // 1. Query guest by publicCode
-        const qCode = query(collection(db, 'guests'), where('publicCode', '==', clean));
-        const snapCode = await getDocs(qCode);
-        if (!snapCode.empty && isMounted) {
-          const g = snapCode.docs[0].data() as Guest;
+        const codeRows = await getDocsWhere<Guest>('guests', 'publicCode', clean);
+        if (codeRows.length > 0 && isMounted) {
+          const g = codeRows[0];
           setGuests(prev => prev.some(item => item.id === g.id) ? prev : [...prev, g]);
           setIsPublicLoading(false);
           return;
         }
 
         // 2. Query guest by qrPayloadToken
-        const qToken = query(collection(db, 'guests'), where('qrPayloadToken', '==', clean));
-        const snapToken = await getDocs(qToken);
-        if (!snapToken.empty && isMounted) {
-          const g = snapToken.docs[0].data() as Guest;
+        const tokenRows = await getDocsWhere<Guest>('guests', 'qrPayloadToken', clean);
+        if (tokenRows.length > 0 && isMounted) {
+          const g = tokenRows[0];
           setGuests(prev => prev.some(item => item.id === g.id) ? prev : [...prev, g]);
           setIsPublicLoading(false);
           return;
         }
 
         // 3. Query guest by document ID
-        const docG = await getDoc(doc(db, 'guests', clean));
-        if (docG.exists() && isMounted) {
-          const g = docG.data() as Guest;
+        const g = await getDocById<Guest>('guests', clean);
+        if (g && isMounted) {
           setGuests(prev => prev.some(item => item.id === g.id) ? prev : [...prev, g]);
           setIsPublicLoading(false);
           return;
         }
 
         // 4. Query event by code
-        const qEvt = query(collection(db, 'events'), where('code', '==', clean));
-        const snapEvt = await getDocs(qEvt);
-        if (!snapEvt.empty && isMounted) {
-          const e = snapEvt.docs[0].data() as EventData;
+        const evtRows = await getDocsWhere<EventData>('events', 'code', clean);
+        if (evtRows.length > 0 && isMounted) {
+          const e = evtRows[0];
           setEvents(prev => prev.some(item => item.id === e.id) ? prev : [...prev, e]);
           setIsPublicLoading(false);
           return;
         }
 
         // 5. Query event by ID
-        const docE = await getDoc(doc(db, 'events', clean));
-        if (docE.exists() && isMounted) {
-          const e = docE.data() as EventData;
+        const e = await getDocById<EventData>('events', clean);
+        if (e && isMounted) {
           setEvents(prev => prev.some(item => item.id === e.id) ? prev : [...prev, e]);
           setIsPublicLoading(false);
           return;
@@ -522,7 +507,7 @@ export default function App() {
       setCategories(prev => [...defaultCategories, ...prev]);
       defaultCategories.forEach((cat) => {
         try {
-          setDoc(doc(db, 'categories', cat.id), cat);
+          safeSetDoc('categories', cat.id, cat);
         } catch (e) {
           console.error(e);
         }
@@ -548,7 +533,7 @@ export default function App() {
     setEvents(prev => [clonedEvent, ...prev]);
     setCurrentEventId(newId);
     try {
-      setDoc(doc(db, 'events', clonedEvent.id), clonedEvent);
+      safeSetDoc('events', clonedEvent.id, clonedEvent);
     } catch (e) {
       console.error(e);
     }
@@ -563,7 +548,7 @@ export default function App() {
     setCategories(prev => [...newCats, ...prev]);
     newCats.forEach((cat) => {
       try {
-        setDoc(doc(db, 'categories', cat.id), cat);
+        safeSetDoc('categories', cat.id, cat);
       } catch (e) {
         console.error(e);
       }
@@ -618,8 +603,8 @@ export default function App() {
       setEvents([fallbackEvent]);
       setCurrentEventId(fallbackEventId);
       try {
-        setDoc(doc(db, 'events', fallbackEvent.id), fallbackEvent);
-        deleteDoc(doc(db, 'events', eventIdToDelete));
+        safeSetDoc('events', fallbackEvent.id, fallbackEvent);
+        safeDeleteDoc('events', eventIdToDelete);
       } catch (err) {
         console.error(err);
       }
@@ -629,7 +614,7 @@ export default function App() {
         setCurrentEventId(remainingEvents[0].id);
       }
       try {
-        deleteDoc(doc(db, 'events', eventIdToDelete));
+        safeDeleteDoc('events', eventIdToDelete);
       } catch (err) {
         console.error(err);
       }
@@ -639,7 +624,7 @@ export default function App() {
     const guestsToRemove = guests.filter(g => g.eventId === eventIdToDelete);
     guestsToRemove.forEach(g => {
       try {
-        deleteDoc(doc(db, 'guests', g.id));
+        safeDeleteDoc('guests', g.id);
       } catch (e) {
         console.error(e);
       }
@@ -863,9 +848,9 @@ export default function App() {
     setGuests(prev => [...newGuests, ...prev]);
     newGuests.forEach(g => {
       try {
-        setDoc(doc(db, 'guests', g.id), sanitizeForFirestore(g));
+        safeSetDoc('guests', g.id, g);
       } catch (err) {
-        console.error('Error saving imported guest to Firestore:', err);
+        console.error('Error saving imported guest to Supabase:', err);
       }
     });
 
@@ -929,9 +914,9 @@ export default function App() {
 
     setGuests(prev => prev.map(g => g.id === guestId ? updated : g));
     try {
-      setDoc(doc(db, 'guests', guestId), sanitizeForFirestore(updated));
+      safeSetDoc('guests', guestId, updated);
     } catch (e) {
-      console.error('Error updating RSVP in Firestore', e);
+      console.error('Error updating RSVP in Supabase', e);
     }
     logAudit(
       'guest_updated',
@@ -1182,7 +1167,7 @@ export default function App() {
                   const updated = { ...target, ...updates };
                   setGuests(guests.map(g => (g.id === id ? updated : g)));
                   try {
-                    setDoc(doc(db, 'guests', id), sanitizeForFirestore(updated));
+                    safeSetDoc('guests', id, updated);
                   } catch (e) {
                     console.error(e);
                   }
@@ -1227,10 +1212,9 @@ export default function App() {
                 };
                 setEvents(events.map(e => e.id === currentEvent.id ? updatedEvent : e));
                 try {
-                  const eventDocRef = doc(db, 'events', updatedEvent.id);
-                  setDoc(eventDocRef, sanitizeForFirestore(updatedEvent), { merge: true });
+                  safeSetDoc('events', updatedEvent.id, updatedEvent, { merge: true });
                 } catch (err) {
-                  console.error('Error saving event landing config in Firestore:', err);
+                  console.error('Error saving event landing config in Supabase:', err);
                 }
               }}
               onOpenPublicLanding={(guestId) => {
@@ -1253,8 +1237,7 @@ export default function App() {
               onUpdateEvent={(updatedEvent) => {
                 setEvents(events.map(e => e.id === updatedEvent.id ? updatedEvent : e));
                 try {
-                  const eventDocRef = doc(db, 'events', updatedEvent.id);
-                  setDoc(eventDocRef, sanitizeForFirestore(updatedEvent), { merge: true });
+                  safeSetDoc('events', updatedEvent.id, updatedEvent, { merge: true });
                 } catch (err) {
                   console.error('Error saving event AI config:', err);
                 }

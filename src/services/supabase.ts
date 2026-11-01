@@ -1,28 +1,34 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { 
-  getFirestore, 
-  collection, 
-  doc, 
-  setDoc, 
-  getDocs, 
-  deleteDoc, 
-  onSnapshot, 
-  writeBatch,
-  getDocFromServer
-} from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { EventData, Guest, TicketCategory, AuditLog, UserProfile } from '../types';
-import { 
-  INITIAL_EVENTS, 
-  INITIAL_CATEGORIES, 
-  INITIAL_GUESTS, 
-  INITIAL_LOGS, 
-  INITIAL_USERS 
+import {
+  INITIAL_EVENTS,
+  INITIAL_CATEGORIES,
+  INITIAL_GUESTS,
+  INITIAL_LOGS,
+  INITIAL_USERS,
 } from '../data/mockData';
 
-// Initialize Firebase App singleton
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const supabaseUrl =
+  import.meta.env.VITE_SUPABASE_URL ?? 'https://spyqcxpbtbjcrkctqfby.supabase.co';
+export const supabaseAnonKey =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ??
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNweXFjeHBidGJqY3JrY3RxZmJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM1NDIxMTcsImV4cCI6MjEwOTExODExN30.ppUPtGPz3jm2qtmvC2r9kyB7E5_jQlsBUOSKhwfG05s';
+
+export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: { persistSession: true, autoRefreshToken: true },
+});
+
+const TABLES: Record<string, string> = {
+  events: 'events',
+  guests: 'guests',
+  categories: 'categories',
+  auditLogs: 'audit_logs',
+  users: 'users',
+};
+
+export function resolveTable(collection: string): string {
+  return TABLES[collection] ?? collection;
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -33,84 +39,68 @@ export enum OperationType {
   WRITE = 'write',
 }
 
-export interface FirestoreErrorInfo {
+export interface DataErrorInfo {
   error: string;
   operationType: OperationType;
   path: string | null;
 }
 
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
+export function handleDataError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: DataErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     operationType,
-    path
+    path,
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  console.error('Supabase Error: ', JSON.stringify(errInfo));
   return errInfo;
 }
 
-// Test Connection
 export async function testFirestoreConnection(): Promise<boolean> {
   try {
-    await getDocFromServer(doc(db, 'system_test', 'connection'));
-    return true;
+    const { error } = await supabase.from('events').select('id').limit(1);
+    return !error;
   } catch (error) {
-    console.warn('Firestore connection test failed:', error);
+    console.warn('Supabase connection test failed:', error);
     return false;
   }
 }
 
-// Sync Service: Seed Initial Data if Collections are Empty
 export async function seedInitialDatabaseIfNeeded() {
   try {
-    const eventsSnap = await getDocs(collection(db, 'events'));
-    if (eventsSnap.empty) {
-      console.log('Seeding initial events, guests, categories and users into Firestore...');
-      const batch = writeBatch(db);
-
-      INITIAL_EVENTS.forEach((evt) => {
-        batch.set(doc(db, 'events', evt.id), evt);
-      });
-
-      INITIAL_CATEGORIES.forEach((cat) => {
-        batch.set(doc(db, 'categories', cat.id), cat);
-      });
-
-      INITIAL_GUESTS.forEach((gst) => {
-        batch.set(doc(db, 'guests', gst.id), gst);
-      });
-
-      INITIAL_LOGS.forEach((log) => {
-        batch.set(doc(db, 'auditLogs', log.id), log);
-      });
-
-      INITIAL_USERS.forEach((usr) => {
-        batch.set(doc(db, 'users', usr.id), usr);
-      });
-
-      await batch.commit();
-      console.log('Initial data seeded successfully in Firestore!');
+    const { data: events, error: evtErr } = await supabase.from('events').select('id').limit(1);
+    if (evtErr) {
+      handleDataError(evtErr, OperationType.LIST, 'events');
+      return;
     }
+    if (events && events.length > 0) return;
+
+    console.log('Seeding initial events, guests, categories and users into Supabase...');
+    const { error: e1 } = await supabase.from('events').upsert(INITIAL_EVENTS as EventData[]);
+    const { error: e2 } = await supabase.from('categories').upsert(INITIAL_CATEGORIES as TicketCategory[]);
+    const { error: e3 } = await supabase.from('guests').upsert(INITIAL_GUESTS as Guest[]);
+    const { error: e4 } = await supabase.from('audit_logs').upsert(INITIAL_LOGS as AuditLog[]);
+    const { error: e5 } = await supabase.from('users').upsert(INITIAL_USERS as UserProfile[]);
+
+    if (e1 || e2 || e3 || e4 || e5) {
+      console.error('Seed errors:', { e1, e2, e3, e4, e5 });
+      return;
+    }
+    console.log('Initial data seeded successfully in Supabase!');
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, 'seed');
+    handleDataError(error, OperationType.WRITE, 'seed');
   }
 }
 
-// Global System Reset (Cessão da Plataforma / Nova Empresa)
 export async function resetEntireDatabase(adminUser: UserProfile) {
   try {
     console.log('Performing Total System Reset...');
-    
-    // 1. Delete all existing docs
-    const collectionsToClear = ['events', 'guests', 'categories', 'auditLogs', 'users'];
+
+    const collectionsToClear = ['events', 'guests', 'categories', 'audit_logs', 'users'];
     for (const collName of collectionsToClear) {
-      const snap = await getDocs(collection(db, collName));
-      const batch = writeBatch(db);
-      snap.docs.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
+      const { error } = await supabase.from(collName).delete().neq('id', '__none__');
+      if (error) throw new Error(`Failed to clear ${collName}: ${error.message}`);
     }
 
-    // 2. Re-create clean initial instance with the requesting Admin as primary owner
     const cleanEventId = `evt_${Date.now()}`;
     const cleanEvent: EventData = {
       id: cleanEventId,
@@ -147,7 +137,7 @@ export async function resetEntireDatabase(adminUser: UserProfile) {
     };
 
     const cleanCategory: TicketCategory = {
-      id: `cat_geral`,
+      id: 'cat_geral',
       eventId: cleanEventId,
       name: 'Geral / Convidados',
       color: '#3b82f6',
@@ -160,7 +150,7 @@ export async function resetEntireDatabase(adminUser: UserProfile) {
     };
 
     const cleanVipCategory: TicketCategory = {
-      id: `cat_vip`,
+      id: 'cat_vip',
       eventId: cleanEventId,
       name: 'VIP / Área Exclusiva',
       color: '#a855f7',
@@ -193,15 +183,15 @@ export async function resetEntireDatabase(adminUser: UserProfile) {
       severity: 'info',
     };
 
-    const initBatch = writeBatch(db);
-    initBatch.set(doc(db, 'events', cleanEvent.id), cleanEvent);
-    initBatch.set(doc(db, 'categories', cleanCategory.id), cleanCategory);
-    initBatch.set(doc(db, 'categories', cleanVipCategory.id), cleanVipCategory);
-    initBatch.set(doc(db, 'users', cleanAdminUser.id), cleanAdminUser);
-    initBatch.set(doc(db, 'auditLogs', cleanAuditLog.id), cleanAuditLog);
-    await initBatch.commit();
+    const { error: seedErr } = await supabase.from('events').upsert(cleanEvent);
+    if (seedErr) throw new Error(seedErr.message);
+    const { error: catErr } = await supabase.from('categories').upsert([cleanCategory, cleanVipCategory]);
+    if (catErr) throw new Error(catErr.message);
+    const { error: usrErr } = await supabase.from('users').upsert(cleanAdminUser);
+    if (usrErr) throw new Error(usrErr.message);
+    const { error: logErr } = await supabase.from('audit_logs').upsert(cleanAuditLog);
+    if (logErr) throw new Error(logErr.message);
 
-    // Clear local storage overrides
     localStorage.removeItem('eventiza_events');
     localStorage.removeItem('eventiza_guests');
     localStorage.removeItem('eventiza_categories');
@@ -217,7 +207,41 @@ export async function resetEntireDatabase(adminUser: UserProfile) {
       user: cleanAdminUser,
     };
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, 'system_reset');
+    handleDataError(error, OperationType.WRITE, 'system_reset');
     throw error;
+  }
+}
+
+export async function getDocById<T>(collection: string, id: string): Promise<T | null> {
+  try {
+    const { data, error } = await supabase
+      .from(resolveTable(collection))
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as T) ?? null;
+  } catch (error) {
+    handleDataError(error, OperationType.GET, `${collection}/${id}`);
+    return null;
+  }
+}
+
+export async function getDocsWhere<T>(
+  collection: string,
+  field: string,
+  value: string
+): Promise<T[]> {
+  try {
+    const { data, error } = await supabase
+      .from(resolveTable(collection))
+      .select('*')
+      .eq(field, value)
+      .limit(50);
+    if (error) throw new Error(error.message);
+    return (data as T[]) ?? [];
+  } catch (error) {
+    handleDataError(error, OperationType.LIST, `${collection}.${field}`);
+    return [];
   }
 }

@@ -1,11 +1,4 @@
-import { 
-  doc, 
-  setDoc, 
-  deleteDoc, 
-  type DocumentReference,
-  type SetOptions 
-} from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { supabase, resolveTable } from '../services/supabase';
 import { sanitizeForFirestore } from './firestoreSanitizer';
 
 export interface WriteResult {
@@ -13,41 +6,39 @@ export interface WriteResult {
   error?: string;
 }
 
-/**
- * Safely write a document to Firestore with error handling.
- * Returns a result object instead of throwing.
- */
+export interface SetOptions {
+  merge?: boolean;
+}
+
 export async function safeSetDoc<T>(
   collection: string,
   id: string,
   data: T,
-  options?: SetOptions
+  _options?: SetOptions
 ): Promise<WriteResult> {
   try {
-    const docRef = doc(db, collection, id) as DocumentReference<T>;
-    await setDoc(docRef, sanitizeForFirestore(data), options ?? {});
+    const row = { ...(sanitizeForFirestore(data) as Record<string, unknown>), id };
+    const { error } = await supabase.from(resolveTable(collection)).upsert(row);
+    if (error) throw new Error(error.message);
     return { success: true };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error(`Firestore write failed [${collection}/${id}]:`, msg);
+    console.error(`Supabase write failed [${collection}/${id}]:`, msg);
     return { success: false, error: msg };
   }
 }
 
-/**
- * Safely delete a document from Firestore with error handling.
- */
 export async function safeDeleteDoc(
   collection: string,
   id: string
 ): Promise<WriteResult> {
   try {
-    const docRef = doc(db, collection, id);
-    await deleteDoc(docRef);
+    const { error } = await supabase.from(resolveTable(collection)).delete().eq('id', id);
+    if (error) throw new Error(error.message);
     return { success: true };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error(`Firestore delete failed [${collection}/${id}]:`, msg);
+    console.error(`Supabase delete failed [${collection}/${id}]:`, msg);
     return { success: false, error: msg };
   }
 }

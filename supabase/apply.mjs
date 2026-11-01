@@ -1,6 +1,8 @@
-// Aplica supabase/schema.sql via Supabase Management API
-// Uso: SUPABASE_ACCESS_TOKEN=sbp_... node supabase/apply.mjs
+// Aplica SQL do Supabase via Management API
+// Uso: node --env-file=.env supabase/apply.mjs [arquivo-relativo-a-supabase/]
 import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const projectRef = process.env.SUPABASE_PROJECT_REF || 'spyqcxpbtbjcrkctqfby';
 const token = process.env.SUPABASE_ACCESS_TOKEN;
@@ -10,7 +12,9 @@ if (!token) {
   process.exit(1);
 }
 
-const sql = readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
+const sqlFile = process.argv[2] || 'schema.sql';
+const sqlPath = resolve(dirname(fileURLToPath(import.meta.url)), sqlFile);
+const sql = readFileSync(sqlPath, 'utf8');
 
 const res = await fetch(
   `https://api.supabase.com/v1/projects/${projectRef}/database/query`,
@@ -32,5 +36,5 @@ if (!res.ok) {
   process.exit(1);
 }
 
-console.log('Schema aplicado com sucesso.');
+console.log(`SQL aplicado com sucesso (${sqlFile}).`);
 console.log(JSON.stringify(data).slice(0, 800));
