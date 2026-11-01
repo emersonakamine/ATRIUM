@@ -51,6 +51,8 @@ import {
   resetEntireDatabase,
   getDocById,
   getDocsWhere,
+  getDocByField,
+  supabase,
 } from './services/supabase';
 import { safeSetDoc, safeDeleteDoc } from './utils/firestoreWrite';
 import { generateSecureToken } from './utils/token';
@@ -178,7 +180,36 @@ export default function App() {
   // 4. Persistence to LocalStorage
   useLocalStorageSync({ events, guests, categories, auditLogs, users, currentUser, currentEventId, appSettings });
 
-  // Firestore Real-Time Subscriptions for Multi-Device synchronization
+  // 4.1 Supabase Auth: restaura sessão no load e reage a SIGNED_OUT
+  React.useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!mounted) return;
+      if (session?.user?.email) {
+        const profile = await getDocByField<UserProfile>('users', 'email', session.user.email);
+        if (!mounted) return;
+        if (profile && profile.status === 'active') {
+          setCurrentUser(profile);
+        } else {
+          await supabase.auth.signOut();
+        }
+      } else {
+        setCurrentUser(null);
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') setCurrentUser(null);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Real-Time Subscriptions for Multi-Device synchronization
   useSupabaseSync({ setEvents, setGuests, setCategories, setAuditLogs, setUsers });
 
   // Check for URL token on load (e.g. #create-password?token=... or #reset-password?token=...) or public invite route
@@ -331,6 +362,7 @@ export default function App() {
     };
     setCurrentUser(updatedUser);
     setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+    safeSetDoc('users', updatedUser.id, updatedUser);
     logAudit('guest_created', `Login efetuado no sistema por ${user.name} (${user.role})`);
   };
 
@@ -338,12 +370,14 @@ export default function App() {
     if (currentUser) {
       logAudit('guest_created', `Logout efetuado por ${currentUser.name}`);
     }
+    supabase.auth.signOut();
     setCurrentUser(null);
   };
 
   const handlePasswordSetSuccess = (updatedUser: UserProfile) => {
     setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
     setCurrentUser(updatedUser);
+    safeSetDoc('users', updatedUser.id, updatedUser);
     logAudit('guest_updated', `Senha de acesso definida com sucesso para ${updatedUser.name}`);
   };
 
@@ -359,6 +393,7 @@ export default function App() {
     };
 
     setUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
+    safeSetDoc('users', userId, updatedUser);
     logAudit('guest_updated', `Administrador gerou e enviou link de redefinição de senha para ${targetUser.name} (${targetUser.email})`);
     return { success: true, token, user: updatedUser };
   };
@@ -378,6 +413,7 @@ export default function App() {
     };
 
     setUsers(prev => prev.map(u => u.id === targetUser.id ? updatedUser : u));
+    safeSetDoc('users', targetUser.id, updatedUser);
     logAudit('guest_updated', `Solicitação de redefinição de senha disparada para ${targetUser.name}`);
     return { success: true, user: updatedUser, token };
   };
@@ -386,6 +422,7 @@ export default function App() {
     const target = users.find(u => u.id === userId);
     if (!target) return;
     setUsers(prev => prev.filter(u => u.id !== userId));
+    safeDeleteDoc('users', userId);
     logAudit('guest_blocked', `Acesso de usuário revogado/excluído: ${target.name}`);
   };
 
@@ -1296,14 +1333,19 @@ export default function App() {
               events={events}
               onAddUser={(newUser) => {
                 setUsers(prev => [...prev, newUser]);
+                safeSetDoc('users', newUser.id, newUser);
                 logAudit('guest_created', `Novo membro adicionado à equipe: ${newUser.name} (${newUser.role}) com link de 1º acesso enviado`);
               }}
               onUpdateRole={(userId, newRole) => {
                 setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
+                const target = users.find(u => u.id === userId);
+                if (target) safeSetDoc('users', userId, { ...target, role: newRole });
                 logAudit('guest_updated', `Permissão de usuário alterada para ${newRole}`);
               }}
               onUpdateAssignedEvents={(userId, eventIds) => {
                 setUsers(users.map(u => u.id === userId ? { ...u, assignedEventIds: eventIds } : u));
+                const target = users.find(u => u.id === userId);
+                if (target) safeSetDoc('users', userId, { ...target, assignedEventIds: eventIds });
                 logAudit('guest_updated', `Eventos atribuídos ao membro da equipe atualizados`);
               }}
               onDeleteUser={handleDeleteUser}

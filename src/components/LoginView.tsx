@@ -1,5 +1,6 @@
 import React from 'react';
 import { UserProfile } from '../types';
+import { supabase, getDocByField } from '../services/supabase';
 import { 
   ShieldCheck, 
   Lock, 
@@ -34,48 +35,53 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [showPassword, setShowPassword] = React.useState(false);
+  const [submitting, setSubmitting] = React.useState(false);
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
   const [pendingUserNotice, setPendingUserNotice] = React.useState<UserProfile | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setErrorMsg(null);
     setPendingUserNotice(null);
+    setSubmitting(true);
 
-    const cleanEmail = email.trim().toLowerCase();
-    const user = users.find(u => u.email.toLowerCase() === cleanEmail);
+    try {
+      const cleanEmail = email.trim().toLowerCase();
 
-    if (!user) {
-      setErrorMsg('Nenhum usuário cadastrado com este e-mail. Solicite o cadastro ao Administrador do evento.');
-      return;
-    }
+      // Checagens de perfil antes do Auth (mensagens amigáveis, como antes)
+      const profile = await getDocByField<UserProfile>('users', 'email', cleanEmail);
+      if (!profile) {
+        setErrorMsg('Nenhum usuário cadastrado com este e-mail. Solicite o cadastro ao Administrador do evento.');
+        return;
+      }
+      if (profile.status === 'blocked') {
+        setErrorMsg('Este usuário está bloqueado temporariamente. Entre em contato com a administração.');
+        return;
+      }
+      if (profile.status === 'pending_password') {
+        setPendingUserNotice(profile);
+        return;
+      }
 
-    if (user.status === 'blocked') {
-      setErrorMsg('Este usuário está bloqueado temporariamente. Entre em contato com a administração.');
-      return;
-    }
+      const { error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
+      if (error) {
+        if (error.message.toLowerCase().includes('invalid login credentials')) {
+          setErrorMsg('Senha incorreta. Verifique se digitou corretamente ou use o recurso de redefinição de senha.');
+        } else if (error.message.toLowerCase().includes('email not confirmed')) {
+          setErrorMsg('E-mail ainda não confirmado. Contate o administrador.');
+        } else {
+          setErrorMsg(error.message);
+        }
+        return;
+      }
 
-    // Check if user has not yet set a password (pending first access)
-    if (user.status === 'pending_password' || !user.password) {
-      setPendingUserNotice(user);
-      return;
-    }
-
-    // Check password
-    if (user.password !== password) {
-      setErrorMsg('Senha incorreta. Verifique se digitou corretamente ou use o recurso de redefinição de senha.');
-      return;
-    }
-
-    // Success login
-    onLogin(user);
-  };
-
-  const handleQuickLogin = (quickUser: UserProfile) => {
-    if (quickUser.status === 'pending_password' || !quickUser.password) {
-      onOpenSetPassword(quickUser.inviteToken || quickUser.email, true);
-    } else {
-      onLogin(quickUser);
+      onLogin(profile);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -207,10 +213,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
             {/* Submit Button */}
             <button
               type="submit"
-              className="w-full py-3 bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 cursor-pointer mt-2"
+              disabled={submitting}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 cursor-pointer mt-2 disabled:opacity-60 disabled:cursor-wait"
               id="btn-submit-login"
             >
-              <span>Entrar no Sistema</span>
+              <span>{submitting ? 'Entrando...' : 'Entrar no Sistema'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>

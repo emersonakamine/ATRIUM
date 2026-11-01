@@ -177,7 +177,7 @@ export const TeamSettingsView: React.FC<TeamSettingsViewProps> = ({
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {users.map((user) => {
-                const isPending = user.status === 'pending_password' || !user.password;
+                const isPending = user.status === 'pending_password';
                 return (
                   <tr key={user.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-3.5 px-4 font-bold text-slate-900 flex items-center gap-2.5">

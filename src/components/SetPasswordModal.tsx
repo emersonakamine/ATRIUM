@@ -1,5 +1,6 @@
 import React from 'react';
 import { UserProfile } from '../types';
+import { supabase } from '../services/supabase';
 import { 
   KeyRound, 
   Lock, 
@@ -38,6 +39,7 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
   const [successMsg, setSuccessMsg] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (initialTokenOrEmail) {
@@ -66,7 +68,7 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
   const hasMinLength = newPassword.length >= 6;
   const passwordsMatch = newPassword.length > 0 && newPassword === confirmPassword;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -86,22 +88,62 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
       return;
     }
 
-    // Success: Update user
-    const updatedUser: UserProfile = {
-      ...targetUser,
-      status: 'active',
-      password: newPassword,
-      inviteToken: undefined,
-      resetToken: undefined,
-      passwordCreatedAt: new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-    };
+    setBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
 
-    setSuccessMsg('Senha cadastrada com sucesso! Redirecionando para o sistema...');
-    
-    setTimeout(() => {
-      onPasswordSetSuccess(updatedUser);
-      onClose();
-    }, 900);
+      if (session) {
+        // Logado: muda a própria senha direto no Supabase Auth
+        const { error } = await supabase.auth.updateUser({ password: newPassword });
+        if (error) {
+          setErrorMsg(error.message);
+          return;
+        }
+      } else {
+        // 1º acesso / reset sem sessão: token do convite é a prova
+        const token = targetUser.inviteToken || targetUser.resetToken;
+        if (!token) {
+          setErrorMsg('Link de convite inválido. Solicite um novo link ao administrador.');
+          return;
+        }
+        const res = await fetch('/api/auth/set-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, password: newPassword }),
+        });
+        const body = await res.json().catch(() => ({} as any));
+        if (!res.ok || !body.success) {
+          setErrorMsg(body.error || 'Erro ao cadastrar a senha. Tente novamente.');
+          return;
+        }
+        // Login automático após criar a senha (como antes)
+        const { error: signInErr } = await supabase.auth.signInWithPassword({
+          email: targetUser.email,
+          password: newPassword,
+        });
+        if (signInErr) {
+          // Conta criada; só não logou sozinho — usuário pode logar manualmente
+          console.warn('Auto sign-in após set-password falhou:', signInErr.message);
+        }
+      }
+
+      const updatedUser: UserProfile = {
+        ...targetUser,
+        status: 'active',
+        inviteToken: undefined,
+        resetToken: undefined,
+        passwordCreatedAt: new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      };
+
+      setSuccessMsg('Senha cadastrada com sucesso! Redirecionando para o sistema...');
+
+      setTimeout(() => {
+        onPasswordSetSuccess(updatedUser);
+        onClose();
+      }, 900);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -280,15 +322,15 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={!hasMinLength || !passwordsMatch}
+              disabled={busy || !hasMinLength || !passwordsMatch}
               className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer ${
-                hasMinLength && passwordsMatch
+                hasMinLength && passwordsMatch && !busy
                   ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/30 active:scale-95'
                   : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
               }`}
               id="btn-save-password"
             >
-              <span>{isFirstAccess ? 'Salvar Senha & Acessar' : 'Salvar Nova Senha'}</span>
+              <span>{busy ? 'Salvando...' : isFirstAccess ? 'Salvar Senha & Acessar' : 'Salvar Nova Senha'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>

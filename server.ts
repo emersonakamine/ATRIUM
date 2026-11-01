@@ -5,6 +5,7 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { getMessageService } from './server/message-service';
 import { ChannelConfig } from './server/types';
+import { admin } from './server/supabase';
 
 dotenv.config();
 
@@ -536,6 +537,52 @@ DIRETRIZES DE RESPOSTA:
 
   getMessageService(defaultConfig);
   console.log('✅ MessageService (Evolution API) initialized');
+
+  // 9. Auth: definir senha via token de convite/reset (1º acesso ou "esqueci")
+  //    O token é a prova do convite; cria/atualiza o usuário no Supabase Auth.
+  app.post('/api/auth/set-password', async (req, res) => {
+    try {
+      const { token, password } = req.body || {};
+      if (!token || typeof token !== 'string' || !password || typeof password !== 'string' || password.length < 6) {
+        return res.status(400).json({ success: false, error: 'Token e senha (mínimo 6 caracteres) são obrigatórios.' });
+      }
+
+      let lookup = await admin.from('users').select('*').eq('inviteToken', token).limit(1);
+      if (!lookup.error && (!lookup.data || lookup.data.length === 0)) {
+        lookup = await admin.from('users').select('*').eq('resetToken', token).limit(1);
+      }
+      if (lookup.error) throw new Error(lookup.error.message);
+      const userRow = lookup.data && lookup.data[0];
+      if (!userRow) {
+        return res.status(404).json({ success: false, error: 'Link inválido ou expirado. Solicite um novo link ao administrador.' });
+      }
+
+      const email = String(userRow.email || '').toLowerCase();
+      const list = await admin.auth.admin.listUsers(1, 100);
+      if (list.error) throw new Error(list.error.message);
+      const authUser = (list.data?.users || []).find((u: any) => (u.email || '').toLowerCase() === email);
+
+      if (authUser) {
+        const upd = await admin.auth.admin.updateUserById(authUser.id, { password, email_confirm: true });
+        if (upd.error) throw new Error(upd.error.message);
+      } else {
+        const created = await admin.auth.admin.createUser({ email, password, email_confirm: true });
+        if (created.error) throw new Error(created.error.message);
+      }
+
+      const now = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR');
+      const rowUpd = await admin
+        .from('users')
+        .update({ status: 'active', inviteToken: null, resetToken: null, passwordCreatedAt: now })
+        .eq('id', userRow.id);
+      if (rowUpd.error) throw new Error(rowUpd.error.message);
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('set-password error:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
 
   // Vite middleware for development vs static build in production
   if (process.env.NODE_ENV !== 'production') {

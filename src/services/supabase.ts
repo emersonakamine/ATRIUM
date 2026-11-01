@@ -79,7 +79,11 @@ export async function seedInitialDatabaseIfNeeded() {
     const { error: e2 } = await supabase.from('categories').upsert(INITIAL_CATEGORIES as TicketCategory[]);
     const { error: e3 } = await supabase.from('guests').upsert(INITIAL_GUESTS as Guest[]);
     const { error: e4 } = await supabase.from('audit_logs').upsert(INITIAL_LOGS as AuditLog[]);
-    const { error: e5 } = await supabase.from('users').upsert(INITIAL_USERS as UserProfile[]);
+    const usersSeed = INITIAL_USERS.map((u) => {
+      const { password: _legacyPassword, ...rest } = u;
+      return rest;
+    });
+    const { error: e5 } = await supabase.from('users').upsert(usersSeed);
 
     if (e1 || e2 || e3 || e4 || e5) {
       console.error('Seed errors:', { e1, e2, e3, e4, e5 });
@@ -244,4 +248,13 @@ export async function getDocsWhere<T>(
     handleDataError(error, OperationType.LIST, `${collection}.${field}`);
     return [];
   }
+}
+
+export async function getDocByField<T>(
+  collection: string,
+  field: string,
+  value: string
+): Promise<T | null> {
+  const rows = await getDocsWhere<T>(collection, field, value);
+  return rows[0] ?? null;
 }
