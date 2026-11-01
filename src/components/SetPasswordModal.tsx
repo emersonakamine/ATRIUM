@@ -1,6 +1,7 @@
 import React from 'react';
 import { UserProfile } from '../types';
 import { supabase } from '../services/supabase';
+import { apiFetch } from '../services/api';
 import { 
   KeyRound, 
   Lock, 
@@ -106,7 +107,7 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
           setErrorMsg('Link de convite inválido. Solicite um novo link ao administrador.');
           return;
         }
-        const res = await fetch('/api/auth/set-password', {
+        const res = await apiFetch('/api/auth/set-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token, password: newPassword }),

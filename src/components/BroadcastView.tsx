@@ -12,6 +12,7 @@ import {
   Zap
 } from 'lucide-react';
 import { Guest, EventData } from '../types';
+import { apiFetch, apiUrl } from '../services/api';
 
 interface BroadcastViewProps {
   event: EventData;
@@ -53,7 +54,7 @@ export const BroadcastView: React.FC<BroadcastViewProps> = ({ event, guests }) =
 
     try {
       // Create broadcast
-      const res = await fetch('/api/broadcasts', {
+      const res = await apiFetch('/api/broadcasts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -75,10 +76,10 @@ export const BroadcastView: React.FC<BroadcastViewProps> = ({ event, guests }) =
       if (!data.success) throw new Error(data.error);
 
       // Start sending
-      await fetch(`/api/broadcasts/${data.broadcastId}/start`, { method: 'POST' });
+      await apiFetch(`/api/broadcasts/${data.broadcastId}/start`, { method: 'POST' });
 
       // Subscribe to SSE for real-time updates
-      const eventSource = new EventSource(`/api/broadcasts/${data.broadcastId}/stream`);
+      const eventSource = new EventSource(apiUrl(`/api/broadcasts/${data.broadcastId}/stream`));
       
       eventSource.onmessage = (event) => {
         const payload = JSON.parse(event.data);
@@ -104,16 +105,16 @@ export const BroadcastView: React.FC<BroadcastViewProps> = ({ event, guests }) =
   };
 
   const handlePause = async (broadcastId: string) => {
-    await fetch(`/api/broadcasts/${broadcastId}/pause`, { method: 'POST' });
+    await apiFetch(`/api/broadcasts/${broadcastId}/pause`, { method: 'POST' });
   };
 
   const handleResume = async (broadcastId: string) => {
-    await fetch(`/api/broadcasts/${broadcastId}/resume`, { method: 'POST' });
+    await apiFetch(`/api/broadcasts/${broadcastId}/resume`, { method: 'POST' });
   };
 
   const handleCancel = async (broadcastId: string) => {
     if (confirm('Tem certeza que deseja cancelar este envio?')) {
-      await fetch(`/api/broadcasts/${broadcastId}/cancel`, { method: 'POST' });
+      await apiFetch(`/api/broadcasts/${broadcastId}/cancel`, { method: 'POST' });
       setPhase('config');
       setIsSending(false);
     }

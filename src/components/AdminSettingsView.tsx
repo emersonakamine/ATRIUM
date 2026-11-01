@@ -1,5 +1,6 @@
 import React from 'react';
 import { AppSettings, ChannelConfig } from '../types';
+import { apiFetch } from '../services/api';
 import { 
   Settings, 
   Key, 
@@ -117,7 +118,7 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
       const sessionName = channelConfig.whatsapp?.sessionName || 'mi-sesion';
       
       // Usa proxy do servidor Node (/api/baileys/...)
-      const res = await fetch(`/api/baileys/api/sessions/${sessionName}/status`);
+      const res = await apiFetch(`/api/baileys/api/sessions/${sessionName}/status`);
       const data = await res.json();
       
       if (data.success && data.status === 'open') {

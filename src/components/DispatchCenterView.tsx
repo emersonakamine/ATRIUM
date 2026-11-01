@@ -4,6 +4,7 @@ import { generateQrDataUrl } from '../utils/qr';
 import { generateGuestCardImage } from '../utils/cardGenerator';
 import { getInviteBackgroundStyles } from '../utils/inviteStyles';
 import { getGuestInviteUrl, getPublicBaseUrl, getEventLandingUrl } from '../utils/urlHelper';
+import { apiFetch } from '../services/api';
 import { toPng } from 'html-to-image';
 import { 
   Send, 
@@ -253,7 +254,7 @@ export const DispatchCenterView: React.FC<DispatchCenterViewProps> = ({
       const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout
 
       // Disparo resiliente através do backend proxy interno
-      const response = await fetch('/api/dispatch/whatsapp', {
+      const response = await apiFetch('/api/dispatch/whatsapp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

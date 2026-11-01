@@ -17,6 +17,31 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+  // CORS: permite o frontend no Cloudflare Pages chamar a API na VPS
+  // CORS_ORIGINS="https://bp-eventos.pages.dev,https://seu-dominio.com" (ou "*")
+  const corsOrigins = (process.env.CORS_ORIGINS || '*')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    const allow =
+      corsOrigins.includes('*') ||
+      (origin && corsOrigins.includes(origin));
+    if (allow && origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+      res.setHeader('Access-Control-Max-Age', '86400');
+    }
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
+
   // Initialize Gemini AI Client (Lazy / Safe)
   let genAiClient: GoogleGenAI | null = null;
   const getGenAi = () => {
