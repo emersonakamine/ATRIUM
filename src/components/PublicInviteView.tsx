@@ -49,9 +49,15 @@ export const PublicInviteView: React.FC<PublicInviteViewProps> = ({
 }) => {
   const [qrUrl, setQrUrl] = React.useState<string>('');
   const [isDownloading, setIsDownloading] = React.useState(false);
-  const [rsvpStatus, setRsvpStatus] = React.useState<'confirmed' | 'cancelled' | 'pending'>(
-    guest?.status === 'confirmed' ? 'confirmed' : guest?.status === 'cancelled' ? 'cancelled' : 'pending'
-  );
+  const [rsvpStatus, setRsvpStatus] = React.useState<'confirmed' | 'cancelled' | 'pending'>(() => {
+    // 1. Cache local (sobrepõe pra não permitir re-confirmar)
+    if (guest?.id) {
+      const cached = localStorage.getItem(`rsvp_${guest.id}`);
+      if (cached === 'confirmed' || cached === 'cancelled') return cached;
+    }
+    // 2. Status do banco
+    return guest?.status === 'confirmed' ? 'confirmed' : guest?.status === 'cancelled' ? 'cancelled' : 'pending';
+  });
   const [rsvpFeedback, setRsvpFeedback] = React.useState<string | null>(null);
   const [showFullMenu, setShowFullMenu] = React.useState(true);
 
@@ -155,8 +161,11 @@ export const PublicInviteView: React.FC<PublicInviteViewProps> = ({
   // RSVP Trigger
   const handleConfirmRsvp = (confirmed: boolean) => {
     if (!guest) return;
+    if (rsvpStatus !== 'pending') return; // Já confirmou/cancelou
     const newStatus = confirmed ? 'confirmed' : 'cancelled';
     setRsvpStatus(newStatus);
+    // Salvar no cache local pra não permitir re-confirmar
+    localStorage.setItem(`rsvp_${guest.id}`, newStatus);
     setRsvpFeedback(confirmed ? '🎉 Presença confirmada com sucesso! Aguardamos você.' : 'Informamos que não poderá comparecer.');
     if (onUpdateRsvp) {
       onUpdateRsvp(guest.id, confirmed);
@@ -419,10 +428,13 @@ export const PublicInviteView: React.FC<PublicInviteViewProps> = ({
               <button
                 type="button"
                 onClick={() => handleConfirmRsvp(true)}
-                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                disabled={rsvpStatus !== 'pending'}
+                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
                   rsvpStatus === 'confirmed'
                     ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 border border-emerald-500'
-                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                    : rsvpStatus !== 'pending'
+                    ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-60'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer'
                 }`}
               >
                 <Check className="w-4 h-4 text-emerald-400" />
@@ -432,10 +444,13 @@ export const PublicInviteView: React.FC<PublicInviteViewProps> = ({
               <button
                 type="button"
                 onClick={() => handleConfirmRsvp(false)}
-                className={`py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                disabled={rsvpStatus !== 'pending'}
+                className={`py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
                   rsvpStatus === 'cancelled'
                     ? 'bg-red-950/80 text-red-300 border border-red-800'
-                    : 'bg-slate-850 hover:bg-slate-800 text-slate-400 border border-slate-800'
+                    : rsvpStatus !== 'pending'
+                    ? 'bg-slate-850 text-slate-600 border border-slate-800 cursor-not-allowed opacity-60'
+                    : 'bg-slate-850 hover:bg-slate-800 text-slate-400 border border-slate-800 cursor-pointer'
                 }`}
               >
                 <X className="w-4 h-4 text-red-400" />
