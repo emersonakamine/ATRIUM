@@ -228,12 +228,9 @@ export const DispatchCenterView: React.FC<DispatchCenterViewProps> = ({
     const effectiveZapiToken = zapiToken.trim();
     const effectiveUrl = gatewayUrl.trim() || (effectiveZapiId && effectiveZapiToken ? `https://api.z-api.io/instances/${effectiveZapiId}/token/${effectiveZapiToken}/send-text` : '');
 
-    if (gatewayType === 'zapi') {
-      if (!effectiveZapiId && !gatewayUrl) {
-        return { success: false, error: 'Preencha o ID da Instância e o Token da Z-API.' };
-      }
-    } else if (!gatewayUrl) {
-      return { success: false, error: 'URL do Gateway não configurada' };
+    if (gatewayType === 'zapi' && !effectiveZapiId && !effectiveUrl) {
+      // Sem credencial Z-API: deixa o backend usar o fallback Evolution (.env)
+      console.warn('Sem config Z-API - usando fallback Evolution no backend');
     }
     
     // Check for dummy / placeholder values
