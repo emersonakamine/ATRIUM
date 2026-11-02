@@ -101,7 +101,15 @@ export const DispatchCenterView: React.FC<DispatchCenterViewProps> = ({
 
   const [gatewayUrl, setGatewayUrl] = React.useState(() => localStorage.getItem('guestgate_gateway_url') || '');
   const [gatewayToken, setGatewayToken] = React.useState(() => localStorage.getItem('guestgate_gateway_token') || '');
-  const [gatewayInstance, setGatewayInstance] = React.useState(() => localStorage.getItem('guestgate_gateway_instance') || 'bp_eventos');
+  const [gatewayInstance, setGatewayInstance] = React.useState(() => {
+    const saved = localStorage.getItem('guestgate_gateway_instance');
+    // Corrige valor antigo salvo com underscore
+    if (saved === 'bp_eventos') {
+      localStorage.setItem('guestgate_gateway_instance', 'bp-eventos');
+      return 'bp-eventos';
+    }
+    return saved || 'bp-eventos';
+  });
   const [apiDispatchFormat, setApiDispatchFormat] = React.useState<'card_image' | 'text_only'>(() => {
     return (localStorage.getItem('guestgate_api_format') as any) || 'card_image';
   });
@@ -1366,7 +1374,7 @@ export const DispatchCenterView: React.FC<DispatchCenterViewProps> = ({
                     </label>
                     <input
                       type="text"
-                      placeholder="ex: bp_eventos"
+                      placeholder="ex: bp-eventos"
                       value={gatewayInstance}
                       onChange={(e) => setGatewayInstance(e.target.value)}
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:bg-white focus:ring-2 focus:ring-purple-500/20"
@@ -1578,7 +1586,7 @@ services:
                       <div className="space-y-1">
                         <div className="font-bold text-purple-950">Passo 3: Criar a Instância e Conectar o WhatsApp</div>
                         <p className="text-[10px]">
-                          Acesse a interface ou use o endpoint <code className="font-mono bg-white px-1 rounded">/instance/create</code> com nome <code className="font-mono bg-white px-1 rounded">bp_eventos</code> e escaneie o QR Code com o aplicativo WhatsApp do seu celular.
+                          Acesse a interface ou use o endpoint <code className="font-mono bg-white px-1 rounded">/instance/create</code> com nome <code className="font-mono bg-white px-1 rounded">bp-eventos</code> e escaneie o QR Code com o aplicativo WhatsApp do seu celular.
                         </p>
                       </div>
 
