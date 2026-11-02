@@ -308,9 +308,11 @@ DIRETRIZES DE RESPOSTA:
         let payload: any = {};
         if (isImage) {
           targetUrl = `${cleanBase}/message/sendMedia/${instance}`;
+          // Evolution API aceita URL ou base64 puro (sem prefixo data:)
+          const mediaBase64 = (imageDataUrl || '').replace(/^data:image\/[a-z]+;base64,/, '');
           payload = {
             number: cleanPhone,
-            media: imageDataUrl,
+            media: mediaBase64,
             mediatype: 'image',
             caption: message || '',
             options: {
