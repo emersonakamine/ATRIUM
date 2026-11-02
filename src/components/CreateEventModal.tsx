@@ -373,6 +373,7 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
                 <ImageIcon className="w-3.5 h-3.5 text-slate-400" />
                 <span>Imagem de Capa do Evento</span>
               </span>
+              <span className="text-[9px] text-slate-400 font-normal">Recomendado: 1200×630px</span>
             </label>
 
             {/* Presets */}
@@ -399,6 +400,39 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
               ))}
             </div>
 
+            {/* Upload + Remove */}
+            <div className="flex gap-2">
+              <label className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-dashed border-slate-300 rounded-lg text-[11px] text-slate-600 hover:bg-slate-100 hover:border-blue-400 transition-colors cursor-pointer">
+                <ImageIcon className="w-3.5 h-3.5" />
+                <span>Enviar do computador</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (file.size > 2 * 1024 * 1024) {
+                      alert('Imagem muito grande. Máximo 2MB.');
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = () => setCoverUrl(reader.result as string);
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </label>
+              {coverUrl && (
+                <button
+                  type="button"
+                  onClick={() => setCoverUrl('')}
+                  className="px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg text-[11px] text-red-600 hover:bg-red-100 transition-colors cursor-pointer"
+                >
+                  Remover
+                </button>
+              )}
+            </div>
+
             <input
               type="text"
               placeholder="Ou cole o link direto de uma imagem (URL)..."
@@ -406,6 +440,13 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
               onChange={(e) => setCoverUrl(e.target.value)}
               className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
+
+            {/* Preview */}
+            {coverUrl && (
+              <div className="relative rounded-lg overflow-hidden border border-slate-200 h-24">
+                <img src={coverUrl} alt="Preview da capa" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+              </div>
+            )}
           </div>
 
           {/* Footer Actions */}
