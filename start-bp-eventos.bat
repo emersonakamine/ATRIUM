@@ -17,10 +17,10 @@ timeout /t 5 /nobreak >nul
 start "BP-Backend" /min cmd /c "cd /d C:\Projetos G\CTRLEventos && npx tsx server.ts"
 echo      OK
 
-REM 3. Tunnel (cloudflared)
-echo [3/3] Subindo tunnel...
+REM 3. Tunnel + notificacao WhatsApp
+echo [3/3] Subindo tunnel + WhatsApp...
 timeout /t 10 /nobreak >nul
-start "BP-Tunnel" /min cmd /c "cloudflared tunnel --url http://localhost:3002"
+start "BP-Tunnel" /min powershell -ExecutionPolicy Bypass -File "C:\Projetos G\CTRLEventos\start-tunnel.ps1"
 echo      OK
 
 echo ============================================

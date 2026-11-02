@@ -345,7 +345,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
 
                 <button
-                  onClick={() => onSelectTab('scanner')}
+                  onClick={() => window.location.href = '/portaria'}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors cursor-pointer text-left font-medium ${
                     currentTab === 'scanner'
                       ? 'bg-emerald-600 text-white font-semibold shadow-sm'

@@ -303,6 +303,15 @@ export const PortariaScannerView: React.FC<PortariaScannerViewProps> = ({
 
           {/* Quick actions */}
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Back to dashboard */}
+            <button
+              onClick={() => window.location.href = '/'}
+              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+              title="Voltar ao painel"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+            </button>
+
             {/* Fullscreen toggle */}
             <button
               onClick={toggleFullscreen}
