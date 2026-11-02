@@ -144,20 +144,28 @@ DIRETRIZES DE RESPOSTA:
   // 3. Robust WhatsApp Dispatch Proxy Endpoint (Handles Z-API and Evolution API)
   app.post('/api/dispatch/whatsapp', async (req, res) => {
     try {
-      const { 
-        gatewayUrl, 
-        gatewayToken, 
-        gatewayInstance, 
-        zapiInstanceId, 
-        zapiToken, 
-        zapiClientToken, 
-        phone, 
-        message, 
-        imageDataUrl, 
-        format 
+      const {
+        gatewayUrl,
+        gatewayToken,
+        gatewayInstance,
+        zapiInstanceId,
+        zapiToken,
+        zapiClientToken,
+        phone,
+        message,
+        imageDataUrl,
+        format
       } = req.body;
 
-      if (!gatewayUrl && (!zapiInstanceId || !zapiToken)) {
+      // Fallback: usa Evolution API do .env quando o body não traz config
+      const envEvolutionUrl = process.env.EVOLUTION_URL || '';
+      const envEvolutionInstance = process.env.EVOLUTION_INSTANCE || 'bp-eventos';
+      const envEvolutionKey = process.env.EVOLUTION_API_KEY || '';
+      const effGatewayUrl = gatewayUrl || (envEvolutionUrl ? `${envEvolutionUrl}/message/sendText` : '');
+      const effGatewayToken = gatewayToken || envEvolutionKey;
+      const effGatewayInstance = gatewayInstance || envEvolutionInstance;
+
+      if (!effGatewayUrl && (!zapiInstanceId || !zapiToken)) {
         return res.status(400).json({ success: false, error: 'Configuração do Gateway não informada. Preencha os campos da Z-API ou Evolution API.' });
       }
       if (!phone) {
@@ -173,17 +181,17 @@ DIRETRIZES DE RESPOSTA:
       const isImage = format === 'card_image' && !!imageDataUrl;
 
       // Check if it's Z-API
-      const isZApi = !!(zapiInstanceId && zapiToken) || (gatewayUrl && gatewayUrl.includes('z-api.io'));
-      const isEvolution = !isZApi && (gatewayUrl && (gatewayUrl.includes('/message/') || gatewayUrl.includes('evolution') || !gatewayUrl.includes('send-')));
+      const isZApi = !!(zapiInstanceId && zapiToken) || (effGatewayUrl && effGatewayUrl.includes('z-api.io'));
+      const isEvolution = !isZApi && (effGatewayUrl && (effGatewayUrl.includes('/message/') || effGatewayUrl.includes('evolution') || effGatewayUrl.includes('8081') || !effGatewayUrl.includes('send-')));
 
       if (isZApi) {
         let instanceId = (zapiInstanceId || '').trim();
         let token = (zapiToken || '').trim();
-        let clientToken = (zapiClientToken || gatewayToken || '').trim();
+        let clientToken = (zapiClientToken || effGatewayToken || '').trim();
 
         // If instanceId or token were not provided separately, parse from gatewayUrl
-        if ((!instanceId || !token) && gatewayUrl) {
-          const match = gatewayUrl.match(/\/instances\/([^\/]+)\/token\/([^\/]+)/);
+        if ((!instanceId || !token) && effGatewayUrl) {
+          const match = effGatewayUrl.match(/\/instances\/([^\/]+)\/token\/([^\/]+)/);
           if (match) {
             instanceId = instanceId || match[1];
             token = token || match[2];
@@ -284,10 +292,10 @@ DIRETRIZES DE RESPOSTA:
 
         return res.json({ success: true, data: resJson });
       } else if (isEvolution) {
-        let targetUrl = (gatewayUrl || '').trim();
+        let targetUrl = (effGatewayUrl || '').trim();
         const cleanBase = targetUrl.replace(/\/message\/(sendText|sendMedia)(\/.*)?$/, '').replace(/\/+$/, '');
-        const instance = (gatewayInstance || 'default').trim();
-        const apiKey = (gatewayToken || '').replace(/^Bearer\s+/i, '').trim();
+        const instance = (effGatewayInstance || 'default').trim();
+        const apiKey = (effGatewayToken || '').replace(/^Bearer\s+/i, '').trim();
 
         let headers: Record<string, string> = {
           'Content-Type': 'application/json',
@@ -347,14 +355,14 @@ DIRETRIZES DE RESPOSTA:
         return res.json({ success: true, data: resJson });
       } else {
         // Generic Webhook POST
-        let targetUrl = (gatewayUrl || '').trim();
+        let targetUrl = (effGatewayUrl || '').trim();
         let headers: Record<string, string> = {
           'Content-Type': 'application/json',
         };
 
-        if (gatewayToken) {
-          headers['Authorization'] = gatewayToken.startsWith('Bearer ') ? gatewayToken : `Bearer ${gatewayToken}`;
-          headers['apikey'] = gatewayToken;
+        if (effGatewayToken) {
+          headers['Authorization'] = effGatewayToken.startsWith('Bearer ') ? effGatewayToken : `Bearer ${effGatewayToken}`;
+          headers['apikey'] = effGatewayToken;
         }
 
         const payload = {

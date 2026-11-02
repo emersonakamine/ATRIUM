@@ -215,7 +215,8 @@ export class MessageService extends EventEmitter {
       );
       if (response.ok) {
         const data = await response.json();
-        return { online: data?.status === 'open' };
+        const state = data?.instance?.state ?? data?.status;
+        return { online: state === 'open' };
       }
       return { online: false, error: `Servidor retornou ${response.status}` };
     } catch (err: any) {
